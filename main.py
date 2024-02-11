@@ -100,9 +100,6 @@ def block_other(self, other):
 
 def collide_other(self, other):
 
-    if self.facing != other.facing:
-        other.vel = 0
-
     # handles situation both bodies moving in same direction, faster bounces off, slower is pushed forward
     if sign(self.vel) == sign(other.vel) or sign(self.vel) == 0 or sign(other.vel) == 0:
         if abs(other.vel) > abs(self.vel):
