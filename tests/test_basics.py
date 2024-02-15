@@ -344,7 +344,7 @@ def test_random_seed_42():
 
     actions = []
 
-    for _ in range(100):
+    for _ in range(1000):
         action = [Action.FORWARD, Action(random.choice(range(4)))]
         print(action)
         actions += [action]

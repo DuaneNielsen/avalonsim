@@ -63,11 +63,11 @@ def close(a, b, tol=1e-6):
 
 def between(base, pos):
     faces = sorted(base.faces, key=lambda x: x.pos)
-    return round(faces[0].pos, 7) < pos < round(faces[1].pos, 7)
+    return faces[0].pos < pos < faces[1].pos
 
 
 def overlap(base1, base2):
-    return between(base1, round(base2.faces[0].pos, 7)) or between(base1, round(base2.faces[1].pos, 7))
+    return between(base1, base2.faces[0].pos) or between(base1, base2.faces[1].pos)
 
 
 class Base:
