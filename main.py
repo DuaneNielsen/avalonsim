@@ -53,11 +53,21 @@ class Face:
         return self.parent.id == face.parent.id
 
     def __repr__(self):
-        return str(self.parent.__class__) + " " + str(self.side) + " pos: " + str(self.pos) + " vel: " + str(self.parent.vel)
+        return str(self.parent.__class__) + " " + str(self.side) + " pos: " + str(self.pos) + " vel: " + str(
+            self.parent.vel)
 
 
-def close(a, b, tol=1e-7):
+def close(a, b, tol=1e-6):
     return abs(a - b) < tol
+
+
+def between(base, pos):
+    faces = sorted(base.faces, key=lambda x: x.pos)
+    return round(faces[0].pos, 7) < pos < round(faces[1].pos, 7)
+
+
+def overlap(base1, base2):
+    return between(base1, round(base2.faces[0].pos, 7)) or between(base1, round(base2.faces[1].pos, 7))
 
 
 class Base:
@@ -239,7 +249,6 @@ class DeleteSelf(Collision):
 
 delete_self = DeleteSelf()
 
-
 collision_handler = CollisionHandler()
 collision_handler.add_handler(CL_PLAYER, CL_ENEMY, dynamic_stop)
 collision_handler.add_handler(CL_ENEMY, CL_PLAYER, dynamic_stop)
@@ -330,6 +339,9 @@ class State:
     def get_sorted_collision_map(self):
         return sorted(face_map(self._state.values()), key=lambda x: x.pos)
 
+    def get_sorted_base_map(self):
+        return sorted(self._state.values(), key=lambda x: x.pos)
+
     @property
     def agents(self):
         return list(filter(lambda x: isinstance(x, Agent), self._state.values()))
@@ -400,7 +412,8 @@ class Env:
             elif action == Action.ATTACK:
                 agent.vel = 0.
                 if agent.weapon is not None:
-                    shot = Shot(agent.facing, agent.pos, agent.weapon.shot_speed * agent.facing, agent.weapon.damage, agent.shot_collision_layer)
+                    shot = Shot(agent.facing, agent.pos, agent.weapon.shot_speed * agent.facing, agent.weapon.damage,
+                                agent.shot_collision_layer)
                     self.timers.push(ShotTimer(self.t + agent.weapon.ttl, shot))
                     self.state.append(shot)
             elif action == Action.REVERSE_FACING:
@@ -445,7 +458,7 @@ class Env:
 
         # update positions and move time forward
         for _, x in self.state.items():
-            x.pos += x.vel * dt
+            x.pos += + x.vel * dt
         self.t += dt
 
         collision_map = self.state.get_sorted_collision_map()
@@ -479,6 +492,12 @@ class Env:
         # delete stuff marked for deletion
         for key in list(self.state.marked_for_deletion):
             del self.state[key]
+
+        # check and resolve overlaps that could be caused by fp numerical errors
+        base_map = self.state.get_sorted_base_map()
+        for i in range(len(base_map) - 1):
+            if overlap(base_map[i], base_map[i + 1]):
+                base_map[i + 1].pos += 1e-7
 
         return self.state, 0., False, {}
 

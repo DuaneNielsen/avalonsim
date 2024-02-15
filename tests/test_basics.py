@@ -3,9 +3,10 @@ from main import Action, Direction
 from main import CL_PLAYER, CL_ENEMY, CL_PLAYER_SHOTS, CL_ENEMY_SHOTS
 from main import Env
 from main import TimerQueue, Timer
-from main import close
+from main import close, between, overlap
 import random
 from main import collision_handler
+
 
 def test_base():
     agent1 = Agent(pos=0.1)
@@ -37,6 +38,24 @@ def test_base():
     assert not agent2.moving_in_direction_of(agent1)
     assert not agent1.moving_same_direction(agent2)
     assert not agent2.moving_same_direction(agent1)
+
+
+def test_overlap():
+    width = Agent().width
+    agent1 = Agent(pos=0.1)
+    agent2 = Agent(pos=0.1 + width)
+    assert between(agent1, 0.1 - width/2 + 1e-3)
+    assert not between(agent1, 0.1 - width / 2)
+    assert between(agent1, 0.1 + width/2 - 1e-3)
+    assert not between(agent1, 0.1 + width / 2)
+
+    print()
+    print(agent1.faces, agent2.faces)
+    assert not overlap(agent1, agent2)
+    assert not overlap(agent2, agent1)
+    agent2.pos -= 1e-4
+    assert overlap(agent1, agent2)
+    assert overlap(agent2, agent1)
 
 
 def test_walls_and_simple_movement():
@@ -312,8 +331,6 @@ def test_shot_penetrate_rules():
                 assert item.pos != next_item.pos
 
 
-
-
 def test_random_seed_42():
     random.seed(42)
     sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01, action_blocking=True)
@@ -346,13 +363,12 @@ def test_random_seed_42():
             assert west_wall <= item.faces[0].pos <= east_wall
             assert west_wall <= item.faces[1].pos <= east_wall
 
-
         # enhance this to check for overlapping objects
         # objects should not be at the same position if they can collide
         for i, item in enumerate(state.dynamics):
             for j, next_item in enumerate(state.dynamics):
                 if i != j:
-                    if item.pos == next_item.pos and (collision_handler.can_collide(item, next_item) or collision_handler.can_collide(next_item, item)):
+                    if overlap(item, next_item) and (collision_handler.can_collide(item, next_item) or collision_handler.can_collide(next_item, item)):
                         print([[action[0].name, action[1].name] for action in actions])
                         print(item, item.collision_layer, next_item, next_item.collision_layer)
                         assert item.pos != next_item.pos
