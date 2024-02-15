@@ -43,7 +43,7 @@ def test_base():
 def test_overlap():
     width = Agent().width
     agent1 = Agent(pos=0.1)
-    agent2 = Agent(pos=0.1 + width)
+    agent2 = Agent(pos=0.1 + width + 1e-7)
     assert between(agent1, 0.1 - width/2 + 1e-3)
     assert not between(agent1, 0.1 - width / 2)
     assert between(agent1, 0.1 + width/2 - 1e-3)
@@ -53,7 +53,7 @@ def test_overlap():
     print(agent1.faces, agent2.faces)
     assert not overlap(agent1, agent2)
     assert not overlap(agent2, agent1)
-    agent2.pos -= 1e-4
+    agent2.pos -= 1e-7
     assert overlap(agent1, agent2)
     assert overlap(agent2, agent1)
 

@@ -397,6 +397,12 @@ class Env:
 
         self.t = 0.
 
+        # check for overlaps
+        base_map = self.state.get_sorted_base_map()
+        for i in range(len(base_map) - 1):
+            if overlap(base_map[i], base_map[i + 1]):
+                assert False, "Overlaps detected in map"
+
     def reset(self):
         self.state = State(self._map)
         self.t = 0.
@@ -495,6 +501,7 @@ class Env:
 
         # check and resolve overlaps that could be caused by fp numerical errors
         base_map = self.state.get_sorted_base_map()
+
         for i in range(len(base_map) - 1):
             if overlap(base_map[i], base_map[i + 1]):
                 base_map[i + 1].pos += 1e-7
