@@ -2,6 +2,7 @@ from math import inf
 import uuid
 import random
 from enum import Enum, IntEnum
+from collections import deque
 
 CL_WALLS = "walls"
 CL_PLAYER = "team_player"
@@ -53,8 +54,7 @@ class Face:
         return self.parent.id == face.parent.id
 
     def __repr__(self):
-        return str(self.parent.__class__) + " " + str(self.side) + " pos: " + str(self.pos) + " vel: " + str(
-            self.parent.vel)
+        return f"{self.parent.__class__.__name__} {self.parent.id} {self.side.name} pos: {self.pos} vel: {self.parent.vel}"
 
 
 def close(a, b, tol=1e-6):
@@ -103,7 +103,7 @@ class Base:
         return sign(self.vel) == sign(other.vel)
 
     def __repr__(self):
-        return str(self.__class__) + " face:" + str(self.facing) + " pos: " + str(self.pos) + " vel: " + str(self.vel)
+        return f"{self.__class__.__name__} {self.id} face: {self.facing.name} pos: {self.pos} vel: {self.vel}"
 
 
 class Static(Base):
@@ -124,6 +124,9 @@ class Wall(Static):
         self.collision_layer = CL_WALLS
         self.width = 0.001
 
+    def __repr__(self):
+        return str(self.__class__) + " face:" + str(self.facing) + " pos: " + str(self.pos)
+
 
 class Agent(Dynamic):
     def __init__(self, pos=0., facing=Direction.WEST, walk_speed=0.1, hp_max=100, collision_layer=CL_ENEMY,
@@ -142,7 +145,7 @@ class Agent(Dynamic):
 
 
 class Shot(Dynamic):
-    def __init__(self, facing, pos, vel, damage, collision_layer):
+    def __init__(self, facing, pos, vel, damage, collision_layer, expiry_time):
         super().__init__()
         self.facing = facing
         self.pos = pos
@@ -150,6 +153,10 @@ class Shot(Dynamic):
         self.damage = damage
         self.collision_layer = collision_layer
         self.width = 0.001
+        self.timer = ShotTimer(expiry_time, self)
+
+    def __del__(self):
+        self.timer.cancel()
 
 
 class RangeFinder(Dynamic):
@@ -162,29 +169,32 @@ class CollisionHandler:
     def __init__(self):
         self.handlers = {}
 
-    def add_handler(self, layer_name1, layer_name2, callback):
-        self.handlers[(layer_name1, layer_name2)] = callback
+    def add_handler(self, layer_name1, layer_name2, callback, can_constrain=False):
+        self.handlers[(layer_name1, layer_name2)] = callback, can_constrain
 
     def can_collide(self, obj1, obj2):
         key = obj1.collision_layer, obj2.collision_layer
         if key in self.handlers:
-            return self.handlers[key].can_collide(obj1, obj2)
+            return True
         else:
             return False
 
-    def apply_contact_constraint(self, obj1, obj2):
+    def can_constrain(self, obj1, obj2):
+        can_constrain = False
         layer_name1 = obj1.collision_layer
         layer_name2 = obj2.collision_layer
         handler = self.handlers.get((layer_name1, layer_name2))
         if handler:
-            handler.contact_constraint(obj1, obj2)
+            _, can_constrain = handler
+        return can_constrain
 
     def handle_collision(self, obj1, obj2):
         layer_name1 = obj1.collision_layer
         layer_name2 = obj2.collision_layer
         handler = self.handlers.get((layer_name1, layer_name2))
         if handler:
-            handler.effect(obj1, obj2)
+            handler_cb, _ = handler
+            handler_cb.collide(obj1, obj2)
 
 
 class Collision:
@@ -192,39 +202,25 @@ class Collision:
         return True
 
     # effects are applied to objects the moment they collide
-    def effect(self, object, other):
-        pass
-
-    # contact constraints are applied to action when objects are touching
-    def contact_constraint(self, object, other):
+    def collide(self, object, other):
         pass
 
 
 class StaticCollision(Collision):
 
-    def effect(self, static_object, other):
+    def collide(self, static_object, other):
         other.parent.vel = 0
-
-    def contact_constraint(self, static_object, other):
-        if other.parent.moving_in_direction_of(static_object.parent):
-            other.parent.vel = 0
 
 
 static_stop = StaticCollision()
 
 
 class DynamicCollision(Collision):
-    def effect(self, face, target_frace):
+    def collide(self, face, target_frace):
         if face.parent.moving_same_direction(target_frace.parent):
             target_frace.parent.vel = min(face.parent.vel, target_frace.parent.vel)
         else:
             target_frace.parent.vel = 0
-
-    def contact_constraint(self, face, target_face):
-        if face.parent.moving_same_direction(target_face.parent):
-            face.parent.vel = min(face.parent.vel, target_face.parent.vel)
-        elif face.parent.moving_in_direction_of(target_face):
-            face.parent.vel = 0
 
 
 dynamic_stop = DynamicCollision()
@@ -232,7 +228,7 @@ dynamic_stop = DynamicCollision()
 
 class ApplyAndDeleteShot(Collision):
 
-    def effect(self, face, target_face):
+    def collide(self, face, target_face):
         target_face.parent.hp -= face.parent.damage
         face.parent.vel = 0.
         face.parent.delete = True
@@ -242,7 +238,7 @@ apply_damage_and_delete = ApplyAndDeleteShot()
 
 
 class DeleteSelf(Collision):
-    def effect(self, face, target_face):
+    def collide(self, face, target_face):
         face.parent.vel = 0.
         face.parent.delete = True
 
@@ -250,10 +246,10 @@ class DeleteSelf(Collision):
 delete_self = DeleteSelf()
 
 collision_handler = CollisionHandler()
-collision_handler.add_handler(CL_PLAYER, CL_ENEMY, dynamic_stop)
-collision_handler.add_handler(CL_ENEMY, CL_PLAYER, dynamic_stop)
-collision_handler.add_handler(CL_WALLS, CL_PLAYER, static_stop)
-collision_handler.add_handler(CL_WALLS, CL_ENEMY, static_stop)
+collision_handler.add_handler(CL_PLAYER, CL_ENEMY, dynamic_stop, can_constrain=True)
+collision_handler.add_handler(CL_ENEMY, CL_PLAYER, dynamic_stop, can_constrain=True)
+collision_handler.add_handler(CL_WALLS, CL_PLAYER, static_stop, can_constrain=True)
+collision_handler.add_handler(CL_WALLS, CL_ENEMY, static_stop, can_constrain=True)
 collision_handler.add_handler(CL_PLAYER_SHOTS, CL_WALLS, delete_self)
 collision_handler.add_handler(CL_ENEMY_SHOTS, CL_WALLS, delete_self)
 collision_handler.add_handler(CL_ENEMY_SHOTS, CL_PLAYER, apply_damage_and_delete)
@@ -281,23 +277,34 @@ class TimerQueue:
     def is_empty(self):
         return len(self.queue) == 0
 
+    def cancel(self, id):
+        for i, timer in enumerate(self.queue):
+            if timer.id == id:
+                del self.queue[i]
+
+
+timers = TimerQueue()
+
 
 class Timer:
-    def __init__(self):
-        self.t = 0.
+    def __init__(self, t):
+        self.t = t
         self.id = next(next_id())
+        timers.push(self)
 
     def on_expire(self):
         pass
 
+    def cancel(self):
+        timers.cancel(self.id)
+
     def __repr__(self):
-        return f'Timer({self.t}, {self})'
+        return f'Timer({self.t}, {self.id})'
 
 
 class ShotTimer(Timer):
     def __init__(self, t, shot):
-        super().__init__()
-        self.t = t
+        super().__init__(t)
         self.shot = shot
 
     def on_expire(self):
@@ -312,6 +319,9 @@ class Weapon:
         self.action_blocking = action_blocking
         self.ttl = time_to_live
         self.time_alive = 0.
+
+    def shoot(self, t, pos, direction, collision_layer):
+        return Shot(direction, pos, self.shot_speed * direction, self.damage, collision_layer, t + self.ttl)
 
 
 def dt_to_collision(pos0, vel0, pos1, vel1):
@@ -337,7 +347,7 @@ class State:
                 self.append(item)
 
     def get_sorted_collision_map(self):
-        return sorted(face_map(self._state.values()), key=lambda x: x.pos)
+        return face_map(sorted(self._state.values(), key=lambda x: x.pos))
 
     def get_sorted_base_map(self):
         return sorted(self._state.values(), key=lambda x: x.pos)
@@ -387,12 +397,95 @@ class State:
         return str(self.get_sorted_collision_map())
 
 
+class VelFacePathIter:
+    def __init__(self, sorted_base_map, i):
+        self.base_map = sorted_base_map
+        self.i = i
+        self.base = self.base_map[i]
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.base.vel == 0.:
+            raise StopIteration()
+        self.i += sign(self.base.vel)
+        if 0 <= self.i < len(self.base_map):
+            face_idx = 1 if self.base.vel > 0 else 0
+            return self.base.faces[face_idx], self.base_map[self.i].faces[1-face_idx]
+        else:
+            raise StopIteration()
+
+
+class VelBasePathIter:
+    def __init__(self, sorted_base_map, i):
+        self.base_map = sorted_base_map
+        self.i = i
+        self.base = self.base_map[i]
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.base.vel == 0.:
+            raise StopIteration()
+        self.i += sign(self.base.vel)
+        if 0 <= self.i < len(self.base_map):
+            return self.base_map[self.i]
+        else:
+            raise StopIteration()
+
+
+class AdjacentPairs:
+    def __init__(self, list):
+        self.list = list
+        self.i = 0
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.i + 1 < len(self.list):
+            x, x_adj = self.list[self.i], self.list[self.i+1]
+            self.i += 1
+            return x, x_adj
+        else:
+            raise StopIteration()
+
+
+def get_contact_groups(sorted_map):
+    contact_sets = []
+    adjacent_set = False
+
+    for i in range(len(sorted_map) - 1):
+        x = sorted_map[i]
+        for j in range(i+1, len(sorted_map)):
+            x_adj = sorted_map[j]
+            can_constrain = collision_handler.can_constrain(x, x_adj) or collision_handler.can_constrain(x_adj, x)
+            if can_constrain:
+                if close(x.faces[1].pos, x_adj.faces[0].pos):
+                    if adjacent_set:
+                        contact_sets[-1].append(x_adj)
+                    else:
+                        contact_sets.append([x, x_adj])
+                        adjacent_set = True
+                else:
+                    adjacent_set = False
+                break
+
+    return contact_sets
+
+def contains(list, basetype):
+    for i in range(len(list)):
+        if isinstance(list[i], basetype):
+            return i
+    return None
+
 class Env:
     def __init__(self, map):
 
         # make the axis finite by placing walls at each end
         self._map = [Wall(0., Direction.EAST), Wall(1.0, Direction.WEST)] + map
-        self.state = State(map)
+        self.state = State(self._map)
         self.timers = TimerQueue()
 
         self.t = 0.
@@ -418,53 +511,68 @@ class Env:
             elif action == Action.ATTACK:
                 agent.vel = 0.
                 if agent.weapon is not None:
-                    shot = Shot(agent.facing, agent.pos, agent.weapon.shot_speed * agent.facing, agent.weapon.damage,
-                                agent.shot_collision_layer)
-                    self.timers.push(ShotTimer(self.t + agent.weapon.ttl, shot))
+                    shot = agent.weapon.shoot(self.t, agent.pos, agent.facing, agent.shot_collision_layer)
                     self.state.append(shot)
             elif action == Action.REVERSE_FACING:
                 agent.facing = reverse_facing(agent.facing)
 
         dt = inf
-
+        next_timer = None
         # if timers are set get the soonest one as a candidate for next event
         if not self.timers.is_empty():
             dt = self.timers.peek().t - self.t
+            next_timer = dt
 
-        collision_map = self.state.get_sorted_collision_map()
+        sorted_map = self.state.get_sorted_base_map()
 
-        # check adjacent objects for future collisions and find the next one
-        for i in range(len(collision_map) - 1):
-            x, x_adj_pos = collision_map[i], collision_map[i + 1].pos
+        # stop objects moving through each other using contact constraints
+        contact_groups = get_contact_groups(sorted_map)
+        for group in contact_groups:
+            for i in range(len(group)-1):
+                left_x, right_x = group[i], group[i+1]
+                if sign(left_x.vel) - sign(right_x.vel) == 2:
+                    left_x.vel = 0.
+                    right_x.vel = 0.
 
-            # keep checking until you have a collision
-            for j in range(i + 1, len(collision_map)):
-                x_adj = collision_map[j]
+        for group in contact_groups:
+            for i, element in enumerate(group):
+                vel_dir = sign(element.vel)
+                speed = abs(element.vel)
+                for next_in_path in VelBasePathIter(group, i):
+                    speed = min(speed, abs(next_in_path.vel))
+                element.vel = speed * vel_dir
 
-                # check if this pair can interact with each other
-                if not x.same_parent(x_adj):
-                    if collision_handler.can_collide(x, x_adj) or collision_handler.can_collide(x_adj, x):
+        # for objects not in contact, compute future collisions and find the nearest in time
+        next_collision = None
 
-                        # if objects are in contact already apply contact constraints
-                        if close(x.pos, x_adj.pos):
-                            collision_handler.apply_contact_constraint(x, x_adj)
-                            collision_handler.apply_contact_constraint(x_adj, x)
-                        else:  # they are not in contact, so compute time to collide
-                            dt_adj = dt_to_collision(x.pos, x.parent.vel, x_adj.pos, x_adj.parent.vel)
-                            if dt_adj > 0 and dt_adj != inf:
-                                print("collision", x, x_adj, dt_adj)
-                                dt = min(dt, dt_adj)
-                                break
+        for i in range(len(sorted_map)):
+            for left_x, right_x in VelFacePathIter(sorted_map, i):
+                if collision_handler.can_collide(left_x, right_x) or collision_handler.can_collide(right_x, left_x):
+                    if not close(left_x.pos, right_x.pos):
+                        dt_adj = dt_to_collision(left_x.pos, left_x.parent.vel, right_x.pos, right_x.parent.vel)
+                        if dt_adj > 0 and dt_adj != inf:
+                            print("fc", (dt_adj, dt), left_x, right_x)
+                            if dt_adj < dt:
+                                next_collision = left_x, right_x
+                            dt = min(dt, dt_adj)
+                            break
 
         # if dt is inf all the objects are stationary
         # or there are only two objects moving away from each other that will never intersect
         # assuming you have walls at both ends, then we cannot be in the latter, so just return the current state
+
         if dt == inf:
+            print(dt, "NO COLLISION")
             return self.state, 0., False, {}
+        else:
+            if dt == next_timer:
+                print(dt, "TIMER", self.timers.peek())
+            else:
+                print(dt, "COLLISION", next_collision)
 
         # update positions and move time forward
-        for _, x in self.state.items():
-            x.pos += + x.vel * dt
+        for _, left_x in self.state.items():
+            left_x.pos += left_x.vel * dt
         self.t += dt
 
         collision_map = self.state.get_sorted_collision_map()
@@ -482,29 +590,34 @@ class Env:
 
             # it's possible to have simultaneous collisions
             for j in range(i + 1, len(collision_map)):
-                x, x_adj = collision_map[i], collision_map[j]
-                if close(x.pos, x_adj.pos):
-                    if not x.same_parent(x_adj):
-                        collisions.append((x, x_adj))
+                left_x, right_x = collision_map[i], collision_map[j]
+                if close(left_x.pos, right_x.pos):
+                    if not left_x.same_parent(right_x):
+                        collisions.append((left_x, right_x))
                 else:
                     # no more objects at this position
                     break
 
         # run the collisions
-        for x, x_other in collisions:
-            collision_handler.handle_collision(x, x_other)
-            collision_handler.handle_collision(x_other, x)
+        for left_x, x_other in collisions:
+            collision_handler.handle_collision(left_x, x_other)
+            collision_handler.handle_collision(x_other, left_x)
 
         # delete stuff marked for deletion
         for key in list(self.state.marked_for_deletion):
             del self.state[key]
 
         # check and resolve overlaps that could be caused by fp numerical errors
-        base_map = self.state.get_sorted_base_map()
-
-        for i in range(len(base_map) - 1):
-            if overlap(base_map[i], base_map[i + 1]):
-                base_map[i + 1].pos += 1e-7
+        sorted_map = self.state.get_sorted_base_map()
+        for group in get_contact_groups(sorted_map):
+            contains_wall = contains(group, Wall)
+            if contains_wall:
+                if contains_wall > 0:
+                    for left_x, right_x in AdjacentPairs(list(reversed(group))):
+                        right_x.pos = left_x.pos - left_x.width / 2 - right_x.width / 2
+            else:
+                for left_x, right_x in AdjacentPairs(group):
+                    right_x.pos = left_x.pos + left_x.width / 2 + right_x.width / 2
 
         return self.state, 0., False, {}
 
@@ -513,11 +626,11 @@ if __name__ == "__main__":
 
     sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01, action_blocking=True)
     bow = Weapon(damage=3, shot_speed=0.3, time_to_live=0.5)
-    player = Agent(facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
     player.weapon = sword
-    enemy = Agent(pos=1.)
+    enemy = Agent(pos=0.9, facing=Direction.WEST)
     enemy.weapon = sword
-    map = [Wall(0, Direction.EAST), Wall(1., Direction.WEST), player, enemy]
+    map = [player, enemy]
     env = Env(map)
 
     import pygame
@@ -584,6 +697,8 @@ if __name__ == "__main__":
     running = True
 
     state = env.reset()
+    print(state)
+
     draw(state)
     random.seed(42)
 
@@ -600,14 +715,16 @@ if __name__ == "__main__":
                     actions = [Action.FORWARD, enemy_action]
                 elif event.key == pygame.K_SPACE:
                     actions = [Action.ATTACK, enemy_action]
-                else:
+                elif event.key == pygame.K_s:
                     actions = [Action.PASS, enemy_action]
+                else:
+                    break
 
             if event.type == pygame.QUIT:
                 running = False
 
             if len(actions) == 2:
-                print(actions)
+                print([a.name for a in actions])
                 state, reward, done, info = env.step(actions)
                 print(state)
                 draw(state)

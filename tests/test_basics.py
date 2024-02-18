@@ -6,7 +6,9 @@ from main import TimerQueue, Timer
 from main import close, between, overlap
 import random
 from main import collision_handler
-
+from main import State
+from main import VelFacePathIter
+from main import  get_contact_groups
 
 def test_base():
     agent1 = Agent(pos=0.1)
@@ -44,9 +46,9 @@ def test_overlap():
     width = Agent().width
     agent1 = Agent(pos=0.1)
     agent2 = Agent(pos=0.1 + width + 1e-7)
-    assert between(agent1, 0.1 - width/2 + 1e-3)
+    assert between(agent1, 0.1 - width / 2 + 1e-3)
     assert not between(agent1, 0.1 - width / 2)
-    assert between(agent1, 0.1 + width/2 - 1e-3)
+    assert between(agent1, 0.1 + width / 2 - 1e-3)
     assert not between(agent1, 0.1 + width / 2)
 
     print()
@@ -56,6 +58,13 @@ def test_overlap():
     agent2.pos -= 1e-7
     assert overlap(agent1, agent2)
     assert overlap(agent2, agent1)
+
+    agent1 = Agent(pos=0.9945007000000003)
+    agent2 = Agent(pos=0.9945014000000001)
+    assert overlap(agent1, agent2)
+
+
+
 
 
 def test_walls_and_simple_movement():
@@ -70,7 +79,8 @@ def test_walls_and_simple_movement():
     print(action)
     state, reward, done, info = env.step([action])
     print(state)
-    assert close(state.agents[0].pos, 1.0 - state.agents[0].width / 2 - state.statics[1].width / 2)
+    expected_pos = 1.0 - state.agents[0].width / 2 - state.statics[1].width / 2
+    assert close(state.agents[0].pos, expected_pos)
     assert state.agents[0].vel == 0.
 
     action = Action.FORWARD
@@ -83,7 +93,8 @@ def test_walls_and_simple_movement():
     print(action)
     state, reward, done, info = env.step([action])
     print(state)
-    assert close(state.agents[0].pos, state.agents[0].width / 2 + state.statics[1].width / 2)
+    expected_pos = state.agents[0].width / 2 + state.statics[1].width / 2
+    assert close(state.agents[0].pos, expected_pos)
     assert state.agents[0].vel == 0.0
 
     action = Action.REVERSE_FACING
@@ -136,9 +147,11 @@ def test_agent_agent_collision_simple():
     print(actions)
     state, reward, done, info = env.step(actions)
     print(state)
-    assert close(state.agents[0].pos, 0.0 + state.statics[0].width / 2 + state.agents[0].width / 2)
+    exp_pos = 0.0 + state.statics[0].width / 2 + state.agents[0].width / 2
+    assert close(state.agents[0].pos, exp_pos)
     assert state.agents[0].vel == 0.0
-    assert close(state.agents[1].pos, 1.0 - state.statics[1].width / 2 - state.agents[1].width / 2)
+    exp_pos = 1.0 - state.statics[1].width / 2 - state.agents[1].width / 2
+    assert close(state.agents[1].pos, exp_pos)
     assert state.agents[1].vel == 0.0
 
 
@@ -219,10 +232,7 @@ def test_sword():
 
 def test_timer():
     tq = TimerQueue()
-    timer1, timer2, timer3 = Timer(), Timer(), Timer()
-    timer1.t = 1.
-    timer2.t = 2.
-    timer3.t = 3.
+    timer1, timer2, timer3 = Timer(1.), Timer(2.), Timer(3.)
 
     assert tq.is_empty()
 
@@ -286,6 +296,7 @@ def test_wall_hack():
             if i != j:
                 assert item.pos != next_item.pos
 
+
 def test_shot_penetrate_rules():
     sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01, action_blocking=True)
     player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
@@ -296,7 +307,9 @@ def test_shot_penetrate_rules():
     env = Env(map)
     state = env.reset()
 
-    actions = [['FORWARD', 'PASS'], ['FORWARD', 'PASS'], ['FORWARD', 'BACKWARD'], ['FORWARD', 'FORWARD'], ['FORWARD', 'FORWARD'], ['FORWARD', 'FORWARD'], ['FORWARD', 'PASS'], ['FORWARD', 'PASS'], ['FORWARD', 'ATTACK']]
+    actions = [['FORWARD', 'PASS'], ['FORWARD', 'PASS'], ['FORWARD', 'BACKWARD'], ['FORWARD', 'FORWARD'],
+               ['FORWARD', 'FORWARD'], ['FORWARD', 'FORWARD'], ['FORWARD', 'PASS'], ['FORWARD', 'PASS'],
+               ['FORWARD', 'ATTACK']]
 
     for agent1_action, agent2_action in actions[:-1]:
         action = [Action[agent1_action], Action[agent2_action]]
@@ -332,8 +345,40 @@ def test_shot_penetrate_rules():
 
 
 def test_random_seed_42():
+
+    def verify(state):
+        for i, item in enumerate(state.dynamics):
+
+            if not west_wall <= item.faces[0].pos <= east_wall:
+                print("face penetrated_wall", item.faces[0], "west_pos", west_wall, "east_pos", east_wall)
+            if not west_wall <= item.faces[1].pos <= east_wall:
+                print("face penetrated_wall", item.faces[1], "west_pos", west_wall, "east_pos", east_wall)
+
+            assert west_wall <= item.pos <= east_wall
+            assert west_wall <= item.faces[0].pos <= east_wall
+            assert west_wall <= item.faces[1].pos <= east_wall
+
+        # enhance this to check for overlapping objects
+        # objects should not be at the same position if they can collide
+        map = state.get_sorted_base_map()
+        for i, item in enumerate(map):
+            for j, next_item in enumerate(map):
+                if i != j:
+                    can_constrain = collision_handler.can_constrain(item, next_item) \
+                                  or collision_handler.can_constrain(next_item,item)
+                    if overlap(item, next_item) and can_constrain:
+                        print([[action[0].name, action[1].name] for action in actions])
+                        print("OVERLAP", item, item.collision_layer, next_item, next_item.collision_layer)
+                        assert False
+
+                    if item.pos == next_item.pos and can_constrain:
+                        print([[action[0].name, action[1].name] for action in actions])
+                        print("EQUAL", item, item.collision_layer, next_item, next_item.collision_layer)
+                        assert False
+
+
     random.seed(42)
-    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01, action_blocking=True)
+    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.00001, action_blocking=True)
     player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
     player.weapon = sword
     enemy = Agent(pos=0.9)
@@ -344,31 +389,125 @@ def test_random_seed_42():
 
     actions = []
 
-    for _ in range(1000):
+    for i in range(400):
         action = [Action.FORWARD, Action(random.choice(range(4)))]
         print(action)
         actions += [action]
         state, _, _, _ = env.step(action)
         cmap = state.get_sorted_collision_map()
         west_wall, east_wall = cmap[1].pos, cmap[-2].pos
+        print(i, state)
+        verify(state)
+
+    action = [Action.FORWARD, Action(random.choice(range(4)))]
+    print(action)
+    actions += [action]
+    state, _, _, _ = env.step(action)
+    cmap = state.get_sorted_collision_map()
+    west_wall, east_wall = cmap[1].pos, cmap[-2].pos
+    print(state)
+    verify(state)
+
+
+def test_no_action():
+    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01, action_blocking=True)
+    bow = Weapon(damage=3, shot_speed=0.3, time_to_live=0.5)
+    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+    player.weapon = sword
+    enemy = Agent(pos=0.9)
+    enemy.weapon = sword
+    map = [player, enemy]
+    env = Env(map)
+    actions = [
+        ['FORWARD', 'PASS'],
+        ['FORWARD', 'PASS'],
+        ['FORWARD', 'BACKWARD'],
+        ['FORWARD', 'FORWARD'],
+        ['FORWARD', 'FORWARD'],
+        ['FORWARD', 'FORWARD'],
+        ['BACKWARD', 'PASS'],
+        ['BACKWARD', 'PASS'],
+        ['BACKWARD', 'ATTACK'],
+        ['BACKWARD', 'PASS'],
+        ['FORWARD', 'PASS']]
+
+    def encode(a):
+        return Action[a[0]], Action[a[1]]
+    actions = [encode(a) for a in actions]
+
+    print('')
+    for action in actions:
+        print([a.name for a in action])
+        state, _, _, _ = env.step(action)
         print(state)
 
-        for i, item in enumerate(state.dynamics):
-            # no wall hacking
-            if not (state.get_sorted_collision_map()[1].pos <= item.pos <= state.get_sorted_collision_map()[-2].pos):
-                print(item)
-                print([[action[0].name, action[1].name] for action in actions])
 
-            cmap = state.get_sorted_collision_map()
-            assert west_wall <= item.faces[0].pos <= east_wall
-            assert west_wall <= item.faces[1].pos <= east_wall
+def test_directional_iterator():
+    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01, action_blocking=True)
+    bow = Weapon(damage=3, shot_speed=0.3, time_to_live=0.5)
+    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+    player.weapon = sword
+    player.vel = 0.1
+    enemy = Agent(pos=0.9)
+    enemy.weapon = sword
+    enemy.vel = - 0.1
+    map = [Wall(0, Direction.EAST), player, enemy, Wall(1., Direction.WEST)]
+    state_map = State(map).get_sorted_base_map()
 
-        # enhance this to check for overlapping objects
-        # objects should not be at the same position if they can collide
-        for i, item in enumerate(state.dynamics):
-            for j, next_item in enumerate(state.dynamics):
-                if i != j:
-                    if overlap(item, next_item) and (collision_handler.can_collide(item, next_item) or collision_handler.can_collide(next_item, item)):
-                        print([[action[0].name, action[1].name] for action in actions])
-                        print(item, item.collision_layer, next_item, next_item.collision_layer)
-                        assert item.pos != next_item.pos
+    print('')
+
+    for item, item_on_path in VelFacePathIter(state_map, 0):
+        assert False
+
+    for item, item_on_path in VelFacePathIter(state_map, 1):
+        assert item.side == item_on_path.side
+
+    for item, item_on_path in VelFacePathIter(state_map, 2):
+        assert item.side == item_on_path.side
+
+    for item, item_on_path in VelFacePathIter(state_map, 3):
+        assert False
+
+
+def test_contact_groups():
+    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01, action_blocking=True)
+    bow = Weapon(damage=3, shot_speed=0.3, time_to_live=0.5)
+    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+    width = player.width
+    player.weapon = sword
+    player.vel = 0.1
+    enemy = Agent(pos=0.9)
+    enemy.weapon = sword
+    enemy.vel = - 0.1
+    map = [Wall(0, Direction.EAST), player, enemy, Wall(1., Direction.WEST)]
+
+    state = State(map)
+    sorted_map = state.get_sorted_base_map()
+    # contact_groups = get_contact_groups(sorted_map)
+    # assert len(contact_groups) == 0
+
+    enemy.pos = player.pos + player.width
+    contact_groups = get_contact_groups(sorted_map)
+    assert len(contact_groups) == 1
+    assert len(contact_groups[0]) == 2
+    assert player.id == contact_groups[0][0].id
+    assert enemy.id == contact_groups[0][1].id
+
+    player1 = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+    enemy1 = Agent(pos=0.1 + width)
+    player2 = Agent(pos=0.1 + 2*width, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+    enemy2 = Agent(pos=0.1 + 4*width)
+    player3 = Agent(pos=0.1 + 5*width, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+
+    map = [Wall(0, Direction.EAST), player1, enemy1, player2, enemy2, player3, Wall(1., Direction.WEST)]
+
+    state = State(map)
+    sorted_map = state.get_sorted_base_map()
+    contact_groups = get_contact_groups(sorted_map)
+    assert len(contact_groups) == 2
+    assert contact_groups[0][0].id == player1.id
+    assert contact_groups[0][1].id == enemy1.id
+    assert contact_groups[0][2].id == player2.id
+    assert contact_groups[1][0].id == enemy2.id
+    assert contact_groups[1][1].id == player3.id
+
