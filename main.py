@@ -42,6 +42,11 @@ def next_id(length=8):
         uid = str(uuid.uuid4())[:length]  # Generate UUID and truncate it
         yield uid
 
+def lookahead(list, i):
+    if i+1 < len(list):
+        return list[i+1]
+    else:
+        return None
 
 class Face:
     def __init__(self, parent, pos, side):
@@ -596,9 +601,12 @@ class Env:
                     print('checking', left_x, right_x, close(left_x.pos, right_x.pos))
                     if close(left_x.pos, right_x.pos):
                             collisions.append((left_x, right_x))
-                    else:
-                        # no more objects at this position
-                        break
+
+                    # check if the next object is at the same position
+                    if lookahead(collision_map, j):
+                        if lookahead(collision_map, j).pos != right_x.pos:
+                            # no more objects at this position, so we are done
+                            break
 
         # run the collisions
         for left_x, x_other in collisions:
@@ -631,7 +639,7 @@ if __name__ == "__main__":
     player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
     player.weapon = sword
     enemy = Agent(pos=0.9, facing=Direction.WEST)
-    enemy.weapon = sword
+    enemy.weapon = bow
     map = [player, enemy]
     env = Env(map)
 
@@ -684,13 +692,19 @@ if __name__ == "__main__":
         screen.fill((0, 0, 0))
 
         for static in state.statics:
-            draw_rect(static, 1., "green")
+            draw_rect(static, 1., "grey")
 
         for agent in state.agents:
-            draw_rect(agent, 0.6, "blue")
+            if agent.collision_layer == CL_PLAYER:
+                draw_rect(agent, 0.6, "blue")
+            if agent.collision_layer == CL_ENEMY:
+                draw_rect(agent, 0.6, "darkorchid")
 
         for shot in state.shots:
-            draw_rect(shot, 0.4, "red")
+            if shot.collision_layer == CL_PLAYER_SHOTS:
+                draw_rect(shot, 0.4, "lightgoldenrod1")
+            if shot.collision_layer == CL_ENEMY_SHOTS:
+                draw_rect(shot, 0.4, "red")
 
         pygame.display.update()
         pygame.time.wait(200)
