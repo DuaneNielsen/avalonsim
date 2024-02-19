@@ -8,7 +8,8 @@ import random
 from main import collision_handler
 from main import State
 from main import VelFacePathIter
-from main import  get_contact_groups
+from main import get_contact_groups
+
 
 def test_base():
     agent1 = Agent(pos=0.1)
@@ -62,9 +63,6 @@ def test_overlap():
     agent1 = Agent(pos=0.9945007000000003)
     agent2 = Agent(pos=0.9945014000000001)
     assert overlap(agent1, agent2)
-
-
-
 
 
 def test_walls_and_simple_movement():
@@ -345,7 +343,6 @@ def test_shot_penetrate_rules():
 
 
 def test_random_seed_42():
-
     def verify(state):
         for i, item in enumerate(state.dynamics):
 
@@ -365,7 +362,7 @@ def test_random_seed_42():
             for j, next_item in enumerate(map):
                 if i != j:
                     can_constrain = collision_handler.can_constrain(item, next_item) \
-                                  or collision_handler.can_constrain(next_item,item)
+                                    or collision_handler.can_constrain(next_item, item)
                     if overlap(item, next_item) and can_constrain:
                         print([[action[0].name, action[1].name] for action in actions])
                         print("OVERLAP", item, item.collision_layer, next_item, next_item.collision_layer)
@@ -375,7 +372,6 @@ def test_random_seed_42():
                         print([[action[0].name, action[1].name] for action in actions])
                         print("EQUAL", item, item.collision_layer, next_item, next_item.collision_layer)
                         assert False
-
 
     random.seed(42)
     sword = Weapon(damage=10, shot_speed=100, time_to_live=0.00001, action_blocking=True)
@@ -433,6 +429,7 @@ def test_no_action():
 
     def encode(a):
         return Action[a[0]], Action[a[1]]
+
     actions = [encode(a) for a in actions]
 
     print('')
@@ -495,9 +492,11 @@ def test_contact_groups():
 
     player1 = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
     enemy1 = Agent(pos=0.1 + width)
-    player2 = Agent(pos=0.1 + 2*width, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
-    enemy2 = Agent(pos=0.1 + 4*width)
-    player3 = Agent(pos=0.1 + 5*width, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+    player2 = Agent(pos=0.1 + 2 * width, facing=Direction.EAST, collision_layer=CL_PLAYER,
+                    shot_collision_layer=CL_PLAYER_SHOTS)
+    enemy2 = Agent(pos=0.1 + 4 * width)
+    player3 = Agent(pos=0.1 + 5 * width, facing=Direction.EAST, collision_layer=CL_PLAYER,
+                    shot_collision_layer=CL_PLAYER_SHOTS)
 
     map = [Wall(0, Direction.EAST), player1, enemy1, player2, enemy2, player3, Wall(1., Direction.WEST)]
 
@@ -511,3 +510,55 @@ def test_contact_groups():
     assert contact_groups[1][0].id == enemy2.id
     assert contact_groups[1][1].id == player3.id
 
+
+def test_attackfest():
+    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01, action_blocking=True)
+    bow = Weapon(damage=3, shot_speed=0.3, time_to_live=0.5)
+    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+    player.weapon = sword
+    enemy = Agent(pos=0.9, facing=Direction.WEST)
+    enemy.weapon = sword
+    map = [player, enemy]
+    env = Env(map)
+
+    actions = [['FORWARD', 'PASS'], ['ATTACK', 'PASS'], ['ATTACK', 'BACKWARD'], ['ATTACK', 'FORWARD'],
+               ['ATTACK', 'FORWARD'], ['ATTACK', 'FORWARD'], ['ATTACK', 'PASS'], ['ATTACK', 'PASS'],
+               ['ATTACK', 'ATTACK'], ['ATTACK', 'PASS'], ['ATTACK', 'PASS'], ['ATTACK', 'PASS'], ['ATTACK', 'FORWARD'],
+               ['ATTACK', 'FORWARD']]
+
+    def encode(a):
+        return Action[a[0]], Action[a[1]]
+
+    actions = [encode(a) for a in actions]
+
+    def verify(state):
+        cmap = state.get_sorted_collision_map()
+        west_wall, east_wall = cmap[1].pos, cmap[-2].pos
+        shots = state.dynamics[2:]
+        if len(state.shots) > 0:
+            if state.shots[0].collision_layer == CL_ENEMY_SHOTS:
+                assert state.agents[0].faces[1].pos <= state.shots[0].faces[0].pos
+                assert state.agents[1].pos >= state.shots[0].faces[1].pos
+
+            if state.shots[0].collision_layer == CL_PLAYER_SHOTS:
+                assert state.agents[0].pos <= state.shots[0].faces[0].pos
+                assert state.agents[1].faces[0].pos >= state.shots[0].faces[1].pos
+
+        print("SHOTS", shots)
+        pass
+
+    print('')
+
+    actions = actions[:10]
+
+    for i, action in enumerate(actions[:-1]):
+        print(i, action)
+        state, _, _, _ = env.step(action)
+        print(i, state)
+        verify(state)
+
+    action = actions[-1]
+    print(action)
+    state, _, _, _ = env.step(actions[-1])
+    print(state)
+    verify(state)

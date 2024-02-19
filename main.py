@@ -563,7 +563,7 @@ class Env:
 
         if dt == inf:
             print(dt, "NO COLLISION")
-            return self.state, 0., False, {}
+            return self.state, 0., False, {'time': self.t, 'dt': dt}
         else:
             if dt == next_timer:
                 print(dt, "TIMER", self.timers.peek())
@@ -591,12 +591,14 @@ class Env:
             # it's possible to have simultaneous collisions
             for j in range(i + 1, len(collision_map)):
                 left_x, right_x = collision_map[i], collision_map[j]
-                if close(left_x.pos, right_x.pos):
-                    if not left_x.same_parent(right_x):
-                        collisions.append((left_x, right_x))
-                else:
-                    # no more objects at this position
-                    break
+                can_collide = collision_handler.can_collide(left_x.parent, right_x.parent) or collision_handler.can_collide(right_x.parent, left_x.parent)
+                if not left_x.same_parent(right_x) and can_collide:
+                    print('checking', left_x, right_x, close(left_x.pos, right_x.pos))
+                    if close(left_x.pos, right_x.pos):
+                            collisions.append((left_x, right_x))
+                    else:
+                        # no more objects at this position
+                        break
 
         # run the collisions
         for left_x, x_other in collisions:
@@ -619,7 +621,7 @@ class Env:
                 for left_x, right_x in AdjacentPairs(group):
                     right_x.pos = left_x.pos + left_x.width / 2 + right_x.width / 2
 
-        return self.state, 0., False, {}
+        return self.state, 0., False, {'time': self.t, 'dt': dt}
 
 
 if __name__ == "__main__":
@@ -702,6 +704,8 @@ if __name__ == "__main__":
     draw(state)
     random.seed(42)
 
+    trajectory = []
+
     while running:
         for event in pygame.event.get():
 
@@ -717,6 +721,8 @@ if __name__ == "__main__":
                     actions = [Action.ATTACK, enemy_action]
                 elif event.key == pygame.K_s:
                     actions = [Action.PASS, enemy_action]
+                elif event.key == pygame.K_t:
+                    print([[s[0].name, s[1].name] for s in trajectory])
                 else:
                     break
 
@@ -725,6 +731,7 @@ if __name__ == "__main__":
 
             if len(actions) == 2:
                 print([a.name for a in actions])
+                trajectory += [actions]
                 state, reward, done, info = env.step(actions)
                 print(state)
                 draw(state)
