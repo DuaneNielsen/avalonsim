@@ -638,12 +638,12 @@ class Env:
 
 if __name__ == "__main__":
 
-    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01, action_blocking=True)
+    sword = Weapon(damage=10, shot_speed=10, time_to_live=0.05, action_blocking=True)
     bow = Weapon(damage=3, shot_speed=0.3, time_to_live=0.5)
     player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
-    player.weapon = sword
+    player.weapon = bow
     enemy = Agent(pos=0.9, facing=Direction.WEST)
-    enemy.weapon = bow
+    enemy.weapon = sword
     map = [player, enemy]
     env = Env(map)
 
@@ -657,6 +657,7 @@ if __name__ == "__main__":
 
     screen = pygame.display.set_mode((screen_width, screen_height))
     fps = 50
+    speed = 6
 
 
     def to_screen(*args):
@@ -714,7 +715,7 @@ if __name__ == "__main__":
                 draw_rect(shot, 0.4, "red")
 
         pygame.display.update()
-        pygame.time.wait(floor(100/fps))
+        pygame.time.wait(floor(100/speed/fps))
 
 
     running = True
@@ -755,7 +756,7 @@ if __name__ == "__main__":
                 trajectory += [actions]
                 state, reward, done, info = env.step(actions, render=True)
 
-                for dt in range(floor(info['dt'] * fps)):
+                for dt in range(ceil(info['dt'] * fps)):
                     for key, item in info['initial_state'].items():
                         info['initial_state'][key].pos += info['initial_state'][key].vel / fps
                         draw(info['initial_state'])
