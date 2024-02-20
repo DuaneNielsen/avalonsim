@@ -506,7 +506,7 @@ class Env:
         self.t = 0.
         return self.state
 
-    def step(self, actions):
+    def step(self, actions, render=False):
 
         for agent, action in zip(self.state.agents, actions):
             if action == Action.FORWARD:
@@ -520,6 +520,10 @@ class Env:
                     self.state.append(shot)
             elif action == Action.REVERSE_FACING:
                 agent.facing = reverse_facing(agent.facing)
+
+        initial_state = None
+        if render:
+            initial_state = deepcopy(self.state)
 
         dt = inf
         next_timer = None
@@ -568,7 +572,7 @@ class Env:
 
         if dt == inf:
             print(dt, "NO COLLISION")
-            return self.state, 0., False, {'time': self.t, 'dt': dt}
+            return self.state, 0., False, {'t': self.t, 'dt': 0, 'initial_state': initial_state}
         else:
             if dt == next_timer:
                 print(dt, "TIMER", self.timers.peek())
@@ -629,7 +633,7 @@ class Env:
                 for left_x, right_x in AdjacentPairs(group):
                     right_x.pos = left_x.pos + left_x.width / 2 + right_x.width / 2
 
-        return self.state, 0., False, {'time': self.t, 'dt': dt}
+        return self.state, 0., False, {'t': self.t, 'dt': dt, 'initial_state': initial_state}
 
 
 if __name__ == "__main__":
@@ -644,12 +648,15 @@ if __name__ == "__main__":
     env = Env(map)
 
     import pygame
+    from math import floor, ceil
+    from copy import deepcopy
 
     pygame.init()
     screen_width, screen_height = 600, 400
     screen_border_width, screen_border_height = 50, 50
 
     screen = pygame.display.set_mode((screen_width, screen_height))
+    fps = 50
 
 
     def to_screen(*args):
@@ -707,7 +714,7 @@ if __name__ == "__main__":
                 draw_rect(shot, 0.4, "red")
 
         pygame.display.update()
-        pygame.time.wait(200)
+        pygame.time.wait(floor(100/fps))
 
 
     running = True
@@ -746,8 +753,12 @@ if __name__ == "__main__":
             if len(actions) == 2:
                 print([a.name for a in actions])
                 trajectory += [actions]
-                state, reward, done, info = env.step(actions)
-                print(state)
+                state, reward, done, info = env.step(actions, render=True)
+
+                for dt in range(floor(info['dt'] * fps)):
+                    for key, item in info['initial_state'].items():
+                        info['initial_state'][key].pos += info['initial_state'][key].vel / fps
+                        draw(info['initial_state'])
                 draw(state)
 
     pygame.quit()
