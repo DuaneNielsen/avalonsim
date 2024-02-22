@@ -281,6 +281,15 @@ class WeaponCooldownTimer(Timer):
         self.weapon.on_cooldown = False
 
 
+class MoveTimer(Timer):
+    def __init__(self, t, timer_q, agent):
+        super().__init__(t, timer_q)
+        self.agent = agent
+
+    def on_expire(self):
+        self.agent.vel = 0
+
+
 class Weapon:
     def __init__(self, damage=10, shot_speed=0.1, time_to_live=0., windup_time=0., cooldown_time=0.0, action_blocking=False):
         self.shot_speed = shot_speed
@@ -481,8 +490,10 @@ class Env:
         for agent, action in zip(self.state.agents, actions):
             if action == Action.FORWARD:
                 agent.vel = agent.walk_speed * agent.facing
+                MoveTimer(self.t + 1., self.timers, agent)
             elif action == Action.BACKWARD:
                 agent.vel = - agent.walk_speed * agent.facing
+                MoveTimer(self.t + 1., self.timers, agent)
             elif action == Action.ATTACK:
                 agent.vel = 0.
                 if agent.weapon is not None:
@@ -567,6 +578,11 @@ class Env:
                 self.timers.pop().on_expire()
                 if self.timers.is_empty():
                     break
+
+        # cancel any move timers
+        for timer in self.timers.queue:
+            if isinstance(timer, MoveTimer):
+                timer.cancel()
 
         # compute collision events
         for i in range(len(collision_map) - 1):
@@ -681,9 +697,13 @@ if __name__ == "__main__":
 
         for agent in state.agents:
             if agent.collision_layer == CL_PLAYER:
-                draw_rect(agent, 0.6, "blue")
-            if agent.collision_layer == CL_ENEMY:
-                draw_rect(agent, 0.6, "darkorchid")
+                color = "blue"
+            elif agent.collision_layer == CL_ENEMY:
+                color = "darkorchid"
+            else:
+                color = "green"
+
+            draw_rect(agent, 0.6 * agent.hp / agent.hp_max, color)
 
         for shot in state.shots:
             if shot.collision_layer == CL_PLAYER_SHOTS:
@@ -694,9 +714,9 @@ if __name__ == "__main__":
         for i, agent in enumerate(state.agents):
             if agent.weapon:
                 if agent.weapon.on_cooldown:
-                    color = pygame.Color("blue")
+                    color = pygame.Color("red")
                 else:
-                    color = pygame.Color("lightblue")
+                    color = pygame.Color("green")
                 x = 0.4 + i * 0.2
                 x, y, width, height = to_screen(x, 0.9, 0.05, 0.05)
                 bar = pygame.Rect(x, y, width, height)
