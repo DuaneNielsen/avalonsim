@@ -782,10 +782,12 @@ if __name__ == "__main__":
                         info['initial_state'][key].pos += info['initial_state'][key].vel / fps
                         draw(info['initial_state'])
                 draw(state)
+                print([[s[0].name, s[1].name] for s in trajectory])
 
             if done:
                 state = env.reset()
                 draw(state)
                 done = False
+                trajectory = []
 
     pygame.quit()
