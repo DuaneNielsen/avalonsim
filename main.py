@@ -154,14 +154,14 @@ class Agent(Dynamic):
 
 
 class Shot(Dynamic):
-    def __init__(self, timer_q, facing, pos, vel, damage, collision_layer, expiry_time):
+    def __init__(self, timer_q, facing, pos, vel, damage, collision_layer, expiry_time, width):
         super().__init__()
         self.facing = facing
         self.pos = pos
         self.vel = vel
         self.damage = damage
         self.collision_layer = collision_layer
-        self.width = 0.001
+        self.width = width
         self.timer = ShotTimer(expiry_time, timer_q, self)
 
 
@@ -292,19 +292,19 @@ class MoveTimer(Timer):
 
 
 class Weapon:
-    def __init__(self, damage=10, shot_speed=0.1, time_to_live=0., windup_time=0., cooldown_time=0.0, action_blocking=False):
+    def __init__(self, damage=10, shot_speed=0.1, time_to_live=0., windup_time=0., cooldown_time=0.0, shot_width=0.005):
         self.shot_speed = shot_speed
         self.damage = damage
         self.windup_time = windup_time
         self.cooldown_time = cooldown_time
         self.on_cooldown = False
-        self.action_blocking = action_blocking
         self.ttl = time_to_live
         self.time_alive = 0.
+        self.shot_width = shot_width
 
     def shoot(self, t, timer_q, pos, direction, collision_layer):
         WeaponCooldownTimer(t + self.cooldown_time, timer_q, self)
-        return Shot(timer_q, direction, pos, self.shot_speed * direction, self.damage, collision_layer, t + self.ttl)
+        return Shot(timer_q, direction, pos, self.shot_speed * direction, self.damage, collision_layer, t + self.ttl, self.shot_width)
 
 
 def dt_to_collision(pos0, vel0, pos1, vel1):
@@ -642,7 +642,7 @@ class Env:
 
 if __name__ == "__main__":
 
-    sword = Weapon(damage=10, shot_speed=1, time_to_live=0.05, cooldown_time=0.1)
+    sword = Weapon(damage=10, shot_speed=0.5, time_to_live=0.04, cooldown_time=0.1, shot_width=0.01)
     bow = Weapon(damage=3, shot_speed=0.7, time_to_live=1, cooldown_time=0.3)
     player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
     player.weapon = sword
@@ -661,7 +661,7 @@ if __name__ == "__main__":
 
     screen = pygame.display.set_mode((screen_width, screen_height))
     fps = 50
-    speed = 2
+    speed = 0.5
 
 
     def to_screen(*args):
