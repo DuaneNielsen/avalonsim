@@ -509,10 +509,6 @@ class Env:
 
         print(f'TIMERS: {self.timers}')
 
-        initial_state = None
-        if render:
-            initial_state = deepcopy(self.state)
-
         dt = inf
         next_timer = None
         # if timers are set get the soonest one as a candidate for next event
@@ -539,6 +535,10 @@ class Env:
                 for next_in_path in VelBasePathIter(group, i):
                     speed = min(speed, abs(next_in_path.vel))
                 element.vel = speed * vel_dir
+
+        initial_state = None
+        if render:
+            initial_state = deepcopy(self.state)
 
         # for objects not in contact, compute future collisions and find the nearest in time
         next_collision = None
@@ -642,12 +642,12 @@ class Env:
 
 if __name__ == "__main__":
 
-    sword = Weapon(damage=10, shot_speed=10, time_to_live=0.05, cooldown_time=0.1)
+    sword = Weapon(damage=10, shot_speed=1, time_to_live=0.05, cooldown_time=0.1)
     bow = Weapon(damage=3, shot_speed=0.7, time_to_live=1, cooldown_time=0.3)
     player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
-    player.weapon = bow
+    player.weapon = sword
     enemy = Agent(pos=0.9, facing=Direction.WEST)
-    enemy.weapon = sword
+    enemy.weapon = bow
     map = [player, enemy]
     env = Env(map)
 
@@ -656,7 +656,7 @@ if __name__ == "__main__":
     from copy import deepcopy
 
     pygame.init()
-    screen_width, screen_height = 600, 400
+    screen_width, screen_height = 1200, 400
     screen_border_width, screen_border_height = 50, 50
 
     screen = pygame.display.set_mode((screen_width, screen_height))
@@ -690,8 +690,8 @@ if __name__ == "__main__":
         assert False, "must be a co-ordinate XY or rectangle XYWH"
 
 
-    def draw_rect(base, height, color):
-        y, width = 0.0, 0.05
+    def draw_rect(base, height, width, color):
+        y = 0.0
         x, y, width, height = to_screen(base.pos, y, width, height)
         x -= width / 2
         color = pygame.Color(color)
@@ -704,7 +704,7 @@ if __name__ == "__main__":
         screen.fill((0, 0, 0))
 
         for static in state.statics:
-            draw_rect(static, 1., "grey")
+            draw_rect(static, 1., static.width, "grey")
 
         for agent in state.agents:
             if agent.collision_layer == CL_PLAYER:
@@ -714,13 +714,13 @@ if __name__ == "__main__":
             else:
                 color = "green"
 
-            draw_rect(agent, 0.6 * agent.hp / agent.hp_max, color)
+            draw_rect(agent, 0.6 * agent.hp / agent.hp_max, agent.width, color)
 
         for shot in state.shots:
             if shot.collision_layer == CL_PLAYER_SHOTS:
-                draw_rect(shot, 0.4, "lightgoldenrod1")
+                draw_rect(shot, 0.4, shot.width, "lightgoldenrod1")
             if shot.collision_layer == CL_ENEMY_SHOTS:
-                draw_rect(shot, 0.4, "red")
+                draw_rect(shot, 0.4, shot.width, "red")
 
         for i, agent in enumerate(state.agents):
             if agent.weapon:
