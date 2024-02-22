@@ -2,6 +2,7 @@ from math import inf
 import uuid
 import random
 from enum import IntEnum
+from copy import deepcopy
 
 from timer import TimerQueue, Timer
 
@@ -470,7 +471,7 @@ class Env:
 
         # make the axis finite by placing walls at each end
         self._map = [Wall(0., Direction.EAST), Wall(1.0, Direction.WEST)] + map
-        self.state = State(self._map)
+        self.state = State(deepcopy(self._map))
         self.t = 0.
         self.timers = TimerQueue()
 
@@ -481,11 +482,14 @@ class Env:
                 assert False, "Overlaps detected in map"
 
     def reset(self):
-        self.state = State(self._map)
+        self.state = State(deepcopy(self._map))
         self.t = 0.
         return self.state
 
     def step(self, actions, render=False):
+
+        done = False
+        reward = 0.
 
         for agent, action in zip(self.state.agents, actions):
             if action == Action.FORWARD:
@@ -557,7 +561,7 @@ class Env:
 
         if dt == inf:
             print(dt, "EVENT: NO COLLISION")
-            return self.state, 0., False, {'t': self.t, 'dt': 0, 'initial_state': initial_state}
+            return self.state, reward, done, {'t': self.t, 'dt': 0, 'initial_state': initial_state}
         else:
             if dt == next_timer:
                 print(dt, "EVENT: TIMER", self.timers.peek())
@@ -626,7 +630,14 @@ class Env:
                 for left_x, right_x in AdjacentPairs(group):
                     right_x.pos = left_x.pos + left_x.width / 2 + right_x.width / 2
 
-        return self.state, 0., False, {'t': self.t, 'dt': dt, 'initial_state': initial_state}
+        for agent in self.state.agents:
+            if agent.hp <= 0:
+                if agent.collision_layer == CL_PLAYER:
+                    reward, done = -1., True
+                elif agent.collision_layer == CL_ENEMY:
+                    reward, done = 1., True
+
+        return self.state, reward, done, {'t': self.t, 'dt': dt, 'initial_state': initial_state}
 
 
 if __name__ == "__main__":
@@ -735,6 +746,7 @@ if __name__ == "__main__":
     random.seed(42)
 
     trajectory = []
+    done = False
 
     while running:
         for event in pygame.event.get():
@@ -770,5 +782,11 @@ if __name__ == "__main__":
                         info['initial_state'][key].pos += info['initial_state'][key].vel / fps
                         draw(info['initial_state'])
                 draw(state)
+
+                print(reward, done)
+            if done:
+                state = env.reset()
+                draw(state)
+                done = False
 
     pygame.quit()
