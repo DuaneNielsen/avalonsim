@@ -2,7 +2,7 @@ from main import Wall, Agent, Weapon
 from main import Action, Direction
 from main import CL_PLAYER, CL_ENEMY, CL_PLAYER_SHOTS, CL_ENEMY_SHOTS
 from main import Env
-from main import TimerQueue, Timer
+from timer import TimerQueue, Timer
 from main import close, between, overlap
 import random
 from main import collision_handler

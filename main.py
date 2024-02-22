@@ -1,8 +1,9 @@
 from math import inf
 import uuid
 import random
-from enum import Enum, IntEnum
-from collections import deque
+from enum import IntEnum
+
+from timer import TimerQueue, Timer
 
 CL_WALLS = "walls"
 CL_PLAYER = "team_player"
@@ -152,7 +153,7 @@ class Agent(Dynamic):
 
 
 class Shot(Dynamic):
-    def __init__(self, facing, pos, vel, damage, collision_layer, expiry_time):
+    def __init__(self, timer_q, facing, pos, vel, damage, collision_layer, expiry_time):
         super().__init__()
         self.facing = facing
         self.pos = pos
@@ -160,7 +161,7 @@ class Shot(Dynamic):
         self.damage = damage
         self.collision_layer = collision_layer
         self.width = 0.001
-        self.timer = ShotTimer(expiry_time, self)
+        self.timer = ShotTimer(expiry_time, timer_q, self)
 
 
 class RangeFinder(Dynamic):
@@ -260,69 +261,9 @@ collision_handler.add_handler(CL_ENEMY_SHOTS, CL_PLAYER, apply_damage_and_delete
 collision_handler.add_handler(CL_PLAYER_SHOTS, CL_ENEMY, apply_damage_and_delete)
 
 
-class TimerQueue:
-    def __init__(self):
-        self.queue = []
-
-    def push(self, timer):
-        self.queue.append(timer)
-        self.queue.sort(key=lambda x: x.t)
-
-    def pop(self):
-        if self.is_empty():
-            raise IndexError("pop from an empty priority queue")
-        return self.queue.pop(0)  # Pop and return the item with the highest priority
-
-    def peek(self):
-        if self.is_empty():
-            return None
-        return self.queue[0]  # Return the item with the highest priority
-
-    def is_empty(self):
-        return len(self.queue) == 0
-
-    def cancel(self, id):
-        for i, timer in enumerate(self.queue):
-            if timer.id == id:
-                del self.queue[i]
-
-    def __repr__(self):
-        return str(self.queue)
-
-
-timers = TimerQueue()
-
-
-class Timer:
-    def __init__(self, t):
-        """
-        :param t: the absolute time at which the timer will expire
-
-        To use just create the object, it will automatically be added to the timer queue
-        """
-        self.t = t
-        self.id = next(next_id())
-        timers.push(self)
-
-    def on_expire(self):
-        """
-        called if timer expires
-        """
-        pass
-
-    def cancel(self):
-        """
-        cancels this timer
-        """
-        timers.cancel(self.id)
-
-    def __repr__(self):
-        return f'{self.__class__.__name__}(t={self.t}, id={self.id})'
-
-
 class ShotTimer(Timer):
-    def __init__(self, t, shot):
-        super().__init__(t)
+    def __init__(self, t, timer_q, shot):
+        super().__init__(t, timer_q)
         self.shot = shot
 
     def on_expire(self):
@@ -330,8 +271,8 @@ class ShotTimer(Timer):
 
 
 class WeaponCooldownTimer(Timer):
-    def __init__(self, t, weapon):
-        super().__init__(t)
+    def __init__(self, t, timer_q, weapon):
+        super().__init__(t, timer_q)
         self.weapon = weapon
         self.weapon.on_cooldown = True
 
@@ -351,9 +292,9 @@ class Weapon:
         self.ttl = time_to_live
         self.time_alive = 0.
 
-    def shoot(self, t, pos, direction, collision_layer):
-        WeaponCooldownTimer(t + self.cooldown_time, self)
-        return Shot(direction, pos, self.shot_speed * direction, self.damage, collision_layer, t + self.ttl)
+    def shoot(self, t, timer_q, pos, direction, collision_layer):
+        WeaponCooldownTimer(t + self.cooldown_time, timer_q, self)
+        return Shot(timer_q, direction, pos, self.shot_speed * direction, self.damage, collision_layer, t + self.ttl)
 
 
 def dt_to_collision(pos0, vel0, pos1, vel1):
@@ -522,6 +463,7 @@ class Env:
         self._map = [Wall(0., Direction.EAST), Wall(1.0, Direction.WEST)] + map
         self.state = State(self._map)
         self.t = 0.
+        self.timers = TimerQueue()
 
         # check for overlaps
         base_map = self.state.get_sorted_base_map()
@@ -545,12 +487,12 @@ class Env:
                 agent.vel = 0.
                 if agent.weapon is not None:
                     if not agent.weapon.on_cooldown:
-                        shot = agent.weapon.shoot(self.t, agent.pos, agent.facing, agent.shot_collision_layer)
+                        shot = agent.weapon.shoot(self.t, self.timers, agent.pos, agent.facing, agent.shot_collision_layer)
                         self.state.append(shot)
             elif action == Action.REVERSE_FACING:
                 agent.facing = reverse_facing(agent.facing)
 
-        print(f'TIMERS: {timers}')
+        print(f'TIMERS: {self.timers}')
 
         initial_state = None
         if render:
@@ -559,9 +501,9 @@ class Env:
         dt = inf
         next_timer = None
         # if timers are set get the soonest one as a candidate for next event
-        if not timers.is_empty():
-            dt = timers.peek().t - self.t
-            print(f'next_timer {timers.peek()} dt: {dt}')
+        if not self.timers.is_empty():
+            dt = self.timers.peek().t - self.t
+            print(f'next_timer {self.timers.peek()} dt: {dt}')
             next_timer = dt
 
         sorted_map = self.state.get_sorted_base_map()
@@ -607,7 +549,7 @@ class Env:
             return self.state, 0., False, {'t': self.t, 'dt': 0, 'initial_state': initial_state}
         else:
             if dt == next_timer:
-                print(dt, "EVENT: TIMER", timers.peek())
+                print(dt, "EVENT: TIMER", self.timers.peek())
             else:
                 print(dt, "EVENT: COLLISION", next_collision)
 
@@ -620,10 +562,10 @@ class Env:
         collisions = []
 
         # now fire any timer events
-        if not timers.is_empty():
-            while self.t == timers.peek().t:
-                timers.pop().on_expire()
-                if timers.is_empty():
+        if not self.timers.is_empty():
+            while self.t == self.timers.peek().t:
+                self.timers.pop().on_expire()
+                if self.timers.is_empty():
                     break
 
         # compute collision events
