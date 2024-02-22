@@ -42,11 +42,13 @@ def next_id(length=8):
         uid = str(uuid.uuid4())[:length]  # Generate UUID and truncate it
         yield uid
 
+
 def lookahead(list, i):
     if i+1 < len(list):
         return list[i+1]
     else:
         return None
+
 
 class Face:
     def __init__(self, parent, pos, side):
@@ -159,9 +161,6 @@ class Shot(Dynamic):
         self.collision_layer = collision_layer
         self.width = 0.001
         self.timer = ShotTimer(expiry_time, self)
-
-    def __del__(self):
-        self.timer.cancel()
 
 
 class RangeFinder(Dynamic):
@@ -287,24 +286,38 @@ class TimerQueue:
             if timer.id == id:
                 del self.queue[i]
 
+    def __repr__(self):
+        return str(self.queue)
+
 
 timers = TimerQueue()
 
 
 class Timer:
     def __init__(self, t):
+        """
+        :param t: the absolute time at which the timer will expire
+
+        To use just create the object, it will automatically be added to the timer queue
+        """
         self.t = t
         self.id = next(next_id())
         timers.push(self)
 
     def on_expire(self):
+        """
+        called if timer expires
+        """
         pass
 
     def cancel(self):
+        """
+        cancels this timer
+        """
         timers.cancel(self.id)
 
     def __repr__(self):
-        return f'Timer({self.t}, {self.id})'
+        return f'{self.__class__.__name__}(t={self.t}, id={self.id})'
 
 
 class ShotTimer(Timer):
@@ -316,16 +329,30 @@ class ShotTimer(Timer):
         self.shot.delete = True
 
 
+class WeaponCooldownTimer(Timer):
+    def __init__(self, t, weapon):
+        super().__init__(t)
+        self.weapon = weapon
+        self.weapon.on_cooldown = True
+
+    def on_expire(self):
+        print(f"Timer cooldown {self.weapon.on_cooldown}")
+        self.weapon.on_cooldown = False
+
+
 class Weapon:
-    def __init__(self, damage=10, shot_speed=0.1, time_to_live=0., windup_time=0., action_blocking=False):
+    def __init__(self, damage=10, shot_speed=0.1, time_to_live=0., windup_time=0., cooldown_time=0.0, action_blocking=False):
         self.shot_speed = shot_speed
         self.damage = damage
         self.windup_time = windup_time
+        self.cooldown_time = cooldown_time
+        self.on_cooldown = False
         self.action_blocking = action_blocking
         self.ttl = time_to_live
         self.time_alive = 0.
 
     def shoot(self, t, pos, direction, collision_layer):
+        WeaponCooldownTimer(t + self.cooldown_time, self)
         return Shot(direction, pos, self.shot_speed * direction, self.damage, collision_layer, t + self.ttl)
 
 
@@ -445,6 +472,7 @@ class AdjacentPairs:
     def __init__(self, list):
         self.list = list
         self.i = 0
+
     def __iter__(self):
         return self
 
@@ -479,11 +507,13 @@ def get_contact_groups(sorted_map):
 
     return contact_sets
 
+
 def contains(list, basetype):
     for i in range(len(list)):
         if isinstance(list[i], basetype):
             return i
     return None
+
 
 class Env:
     def __init__(self, map):
@@ -491,8 +521,6 @@ class Env:
         # make the axis finite by placing walls at each end
         self._map = [Wall(0., Direction.EAST), Wall(1.0, Direction.WEST)] + map
         self.state = State(self._map)
-        self.timers = TimerQueue()
-
         self.t = 0.
 
         # check for overlaps
@@ -516,10 +544,13 @@ class Env:
             elif action == Action.ATTACK:
                 agent.vel = 0.
                 if agent.weapon is not None:
-                    shot = agent.weapon.shoot(self.t, agent.pos, agent.facing, agent.shot_collision_layer)
-                    self.state.append(shot)
+                    if not agent.weapon.on_cooldown:
+                        shot = agent.weapon.shoot(self.t, agent.pos, agent.facing, agent.shot_collision_layer)
+                        self.state.append(shot)
             elif action == Action.REVERSE_FACING:
                 agent.facing = reverse_facing(agent.facing)
+
+        print(f'TIMERS: {timers}')
 
         initial_state = None
         if render:
@@ -528,8 +559,9 @@ class Env:
         dt = inf
         next_timer = None
         # if timers are set get the soonest one as a candidate for next event
-        if not self.timers.is_empty():
-            dt = self.timers.peek().t - self.t
+        if not timers.is_empty():
+            dt = timers.peek().t - self.t
+            print(f'next_timer {timers.peek()} dt: {dt}')
             next_timer = dt
 
         sorted_map = self.state.get_sorted_base_map()
@@ -560,7 +592,7 @@ class Env:
                     if not close(left_x.pos, right_x.pos):
                         dt_adj = dt_to_collision(left_x.pos, left_x.parent.vel, right_x.pos, right_x.parent.vel)
                         if dt_adj > 0 and dt_adj != inf:
-                            print("fc", (dt_adj, dt), left_x, right_x)
+                            # print("fc", (dt_adj, dt), left_x, right_x)
                             if dt_adj < dt:
                                 next_collision = left_x, right_x
                             dt = min(dt, dt_adj)
@@ -571,13 +603,13 @@ class Env:
         # assuming you have walls at both ends, then we cannot be in the latter, so just return the current state
 
         if dt == inf:
-            print(dt, "NO COLLISION")
+            print(dt, "EVENT: NO COLLISION")
             return self.state, 0., False, {'t': self.t, 'dt': 0, 'initial_state': initial_state}
         else:
             if dt == next_timer:
-                print(dt, "TIMER", self.timers.peek())
+                print(dt, "EVENT: TIMER", timers.peek())
             else:
-                print(dt, "COLLISION", next_collision)
+                print(dt, "EVENT: COLLISION", next_collision)
 
         # update positions and move time forward
         for _, left_x in self.state.items():
@@ -588,10 +620,10 @@ class Env:
         collisions = []
 
         # now fire any timer events
-        if not self.timers.is_empty():
-            while dt + self.t == self.timers.peek().t:
-                self.timers.pop().on_expire()
-                if self.timers.is_empty():
+        if not timers.is_empty():
+            while self.t == timers.peek().t:
+                timers.pop().on_expire()
+                if timers.is_empty():
                     break
 
         # compute collision events
@@ -602,7 +634,7 @@ class Env:
                 left_x, right_x = collision_map[i], collision_map[j]
                 can_collide = collision_handler.can_collide(left_x.parent, right_x.parent) or collision_handler.can_collide(right_x.parent, left_x.parent)
                 if not left_x.same_parent(right_x) and can_collide:
-                    print('checking', left_x, right_x, close(left_x.pos, right_x.pos))
+                    # print('checking', left_x, right_x, close(left_x.pos, right_x.pos))
                     if close(left_x.pos, right_x.pos):
                             collisions.append((left_x, right_x))
 
@@ -619,6 +651,9 @@ class Env:
 
         # delete stuff marked for deletion
         for key in list(self.state.marked_for_deletion):
+            item = self.state[key]
+            if isinstance(item, Shot):
+                item.timer.cancel()
             del self.state[key]
 
         # check and resolve overlaps that could be caused by fp numerical errors
@@ -638,8 +673,8 @@ class Env:
 
 if __name__ == "__main__":
 
-    sword = Weapon(damage=10, shot_speed=10, time_to_live=0.05, action_blocking=True)
-    bow = Weapon(damage=3, shot_speed=0.3, time_to_live=0.5)
+    sword = Weapon(damage=10, shot_speed=10, time_to_live=0.05, cooldown_time=0.1)
+    bow = Weapon(damage=3, shot_speed=0.7, time_to_live=1, cooldown_time=0.3)
     player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
     player.weapon = bow
     enemy = Agent(pos=0.9, facing=Direction.WEST)
@@ -657,7 +692,7 @@ if __name__ == "__main__":
 
     screen = pygame.display.set_mode((screen_width, screen_height))
     fps = 50
-    speed = 6
+    speed = 2
 
 
     def to_screen(*args):
@@ -714,6 +749,17 @@ if __name__ == "__main__":
             if shot.collision_layer == CL_ENEMY_SHOTS:
                 draw_rect(shot, 0.4, "red")
 
+        for i, agent in enumerate(state.agents):
+            if agent.weapon:
+                if agent.weapon.on_cooldown:
+                    color = pygame.Color("blue")
+                else:
+                    color = pygame.Color("lightblue")
+                x = 0.4 + i * 0.2
+                x, y, width, height = to_screen(x, 0.9, 0.05, 0.05)
+                bar = pygame.Rect(x, y, width, height)
+                pygame.draw.rect(screen, color, bar)
+
         pygame.display.update()
         pygame.time.wait(floor(100/speed/fps))
 
@@ -755,6 +801,7 @@ if __name__ == "__main__":
                 print([a.name for a in actions])
                 trajectory += [actions]
                 state, reward, done, info = env.step(actions, render=True)
+                print(state)
 
                 for dt in range(ceil(info['dt'] * fps)):
                     for key, item in info['initial_state'].items():
