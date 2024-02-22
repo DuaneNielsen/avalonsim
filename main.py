@@ -775,7 +775,7 @@ if __name__ == "__main__":
                 print([a.name for a in actions])
                 trajectory += [actions]
                 state, reward, done, info = env.step(actions, render=True)
-                print(state)
+                print(state, reward, done)
 
                 for dt in range(ceil(info['dt'] * fps)):
                     for key, item in info['initial_state'].items():
@@ -783,7 +783,6 @@ if __name__ == "__main__":
                         draw(info['initial_state'])
                 draw(state)
 
-                print(reward, done)
             if done:
                 state = env.reset()
                 draw(state)
