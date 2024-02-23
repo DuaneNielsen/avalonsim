@@ -278,10 +278,24 @@ class WindupTimer(Timer):
         self.agent = agent
 
     def on_expire(self, env):
-        self.agent.state = AgentState.READY
         t = env.t + self.weapon.ttl
         shot = self.agent.weapon.shoot(t, env.timers, self.agent.pos, self.agent.facing, self.agent.shot_collision_layer)
         env.state.append(shot)
+        if self.agent.weapon.recovery_time > 0.:
+            self.agent.state = AgentState.RECOVERY
+            timer = RecoveryTimer(env.t + self.weapon.recovery_time, self.agent)
+            env.timers.push(timer)
+        else:
+            self.agent.state = AgentState.READY
+
+
+class RecoveryTimer(Timer):
+    def __init__(self, t, agent):
+        super().__init__(t)
+        self.agent = agent
+
+    def on_expire(self, env):
+        self.agent.state = AgentState.READY
 
 
 class WeaponCooldownTimer(Timer):
@@ -304,18 +318,17 @@ class MoveTimer(Timer):
         self.agent.vel = 0
 
 
-
 class Weapon:
-    def __init__(self, damage=10, shot_speed=0.1, time_to_live=0., windup_time=0., cooldown_time=0.0, shot_width=0.005, blocking=False):
+    def __init__(self, damage=10, shot_speed=0.1, time_to_live=0., windup_time=0., cooldown_time=0.0, recovery_time=0., shot_width=0.005):
         self.shot_speed = shot_speed
         self.damage = damage
         self.windup_time = windup_time
+        self.recovery_time = recovery_time
         self.cooldown_time = cooldown_time
         self.on_cooldown = False
         self.ttl = time_to_live
         self.time_alive = 0.
         self.shot_width = shot_width
-        self.blocking = blocking
 
     def shoot(self, t, timer_q, pos, direction, collision_layer):
         shot = Shot(direction, pos, self.shot_speed * direction, self.damage, collision_layer, self.shot_width)
@@ -664,7 +677,7 @@ class Env:
 
 if __name__ == "__main__":
 
-    sword = Weapon(damage=10, shot_speed=0.5, time_to_live=0.04, cooldown_time=0.1, shot_width=0.01, windup_time=0.1)
+    sword = Weapon(damage=10, shot_speed=0.5, time_to_live=0.04, cooldown_time=0.1, shot_width=0.01, windup_time=0.1, recovery_time=0.04)
     bow = Weapon(damage=3, shot_speed=0.7, time_to_live=1, cooldown_time=0.3, windup_time=0.3)
     player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
     player.weapon = sword
