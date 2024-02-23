@@ -8,10 +8,13 @@ def next_id(length=8):
 
 
 class TimerQueue:
-    def __init__(self):
+    def __init__(self, env):
         self.queue = []
+        self.env = env
 
     def push(self, timer):
+        timer.timer_queue = self
+        timer.env = self.env
         self.queue.append(timer)
         self.queue.sort(key=lambda x: x.t)
 
@@ -38,18 +41,15 @@ class TimerQueue:
 
 
 class Timer:
-    def __init__(self, t, timer_queue):
+    def __init__(self, t):
         """
         :param t: the absolute time at which the timer will expire
-
-        To use just create the object, it will automatically be added to the timer queue
         """
         self.t = t
         self.id = next(next_id())
-        self.timer_queue = timer_queue
-        timer_queue.push(self)
+        self.timer_queue = None
 
-    def on_expire(self):
+    def on_expire(self, env):
         """
         called if timer expires
         """

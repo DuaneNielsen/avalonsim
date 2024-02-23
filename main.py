@@ -17,15 +17,17 @@ class Direction(IntEnum):
     EAST = 1
     WEST = -1
 
-
 class FaceDirection(IntEnum):
     FRONT = 0
     BACK = 1
 
+class AgentState(IntEnum):
+    READY = 0
+    WINDUP = 1
+    RECOVERY = 2
 
 def reverse_facing(facing):
     return Direction.EAST if facing == facing.WEST else Direction.WEST
-
 
 class Action(IntEnum):
     PASS = 0
@@ -34,16 +36,13 @@ class Action(IntEnum):
     ATTACK = 3
     REVERSE_FACING = 4
 
-
 def sign(x):
     return (x > 0) - (x < 0) if x != 0 else 0
-
 
 def next_id(length=8):
     while True:
         uid = str(uuid.uuid4())[:length]  # Generate UUID and truncate it
         yield uid
-
 
 def lookahead(list, i):
     if i+1 < len(list):
@@ -151,10 +150,11 @@ class Agent(Dynamic):
         self.collision_layer = collision_layer
         self.shot_collision_layer = shot_collision_layer
         self.width = 0.01
+        self.state = AgentState.READY
 
 
 class Shot(Dynamic):
-    def __init__(self, timer_q, facing, pos, vel, damage, collision_layer, expiry_time, width):
+    def __init__(self, facing, pos, vel, damage, collision_layer, width):
         super().__init__()
         self.facing = facing
         self.pos = pos
@@ -162,7 +162,7 @@ class Shot(Dynamic):
         self.damage = damage
         self.collision_layer = collision_layer
         self.width = width
-        self.timer = ShotTimer(expiry_time, timer_q, self)
+        self.timer = None
 
 
 class RangeFinder(Dynamic):
@@ -263,36 +263,50 @@ collision_handler.add_handler(CL_PLAYER_SHOTS, CL_ENEMY, apply_damage_and_delete
 
 
 class ShotTimer(Timer):
-    def __init__(self, t, timer_q, shot):
-        super().__init__(t, timer_q)
+    def __init__(self, t, shot):
+        super().__init__(t)
         self.shot = shot
 
-    def on_expire(self):
+    def on_expire(self, env):
         self.shot.delete = True
 
 
+class WindupTimer(Timer):
+    def __init__(self, t, weapon, agent):
+        super().__init__(t)
+        self.weapon = weapon
+        self.agent = agent
+
+    def on_expire(self, env):
+        self.agent.state = AgentState.READY
+        t = env.t + self.weapon.ttl
+        shot = self.agent.weapon.shoot(t, env.timers, self.agent.pos, self.agent.facing, self.agent.shot_collision_layer)
+        env.state.append(shot)
+
+
 class WeaponCooldownTimer(Timer):
-    def __init__(self, t, timer_q, weapon):
-        super().__init__(t, timer_q)
+    def __init__(self, t, weapon):
+        super().__init__(t)
         self.weapon = weapon
         self.weapon.on_cooldown = True
 
-    def on_expire(self):
+    def on_expire(self, env):
         print(f"Timer cooldown {self.weapon.on_cooldown}")
         self.weapon.on_cooldown = False
 
 
 class MoveTimer(Timer):
     def __init__(self, t, timer_q, agent):
-        super().__init__(t, timer_q)
+        super().__init__(t)
         self.agent = agent
 
-    def on_expire(self):
+    def on_expire(self, env):
         self.agent.vel = 0
 
 
+
 class Weapon:
-    def __init__(self, damage=10, shot_speed=0.1, time_to_live=0., windup_time=0., cooldown_time=0.0, shot_width=0.005):
+    def __init__(self, damage=10, shot_speed=0.1, time_to_live=0., windup_time=0., cooldown_time=0.0, shot_width=0.005, blocking=False):
         self.shot_speed = shot_speed
         self.damage = damage
         self.windup_time = windup_time
@@ -301,10 +315,14 @@ class Weapon:
         self.ttl = time_to_live
         self.time_alive = 0.
         self.shot_width = shot_width
+        self.blocking = blocking
 
     def shoot(self, t, timer_q, pos, direction, collision_layer):
-        WeaponCooldownTimer(t + self.cooldown_time, timer_q, self)
-        return Shot(timer_q, direction, pos, self.shot_speed * direction, self.damage, collision_layer, t + self.ttl, self.shot_width)
+        shot = Shot(direction, pos, self.shot_speed * direction, self.damage, collision_layer, self.shot_width)
+        timer = ShotTimer(t + self.ttl, shot)
+        shot.timer = timer
+        timer_q.push(timer)
+        return shot
 
 
 def dt_to_collision(pos0, vel0, pos1, vel1):
@@ -473,7 +491,7 @@ class Env:
         self._map = [Wall(0., Direction.EAST), Wall(1.0, Direction.WEST)] + map
         self.state = State(deepcopy(self._map))
         self.t = 0.
-        self.timers = TimerQueue()
+        self.timers = TimerQueue(self)
 
         # check for overlaps
         base_map = self.state.get_sorted_base_map()
@@ -492,20 +510,24 @@ class Env:
         reward = 0.
 
         for agent, action in zip(self.state.agents, actions):
-            if action == Action.FORWARD:
-                agent.vel = agent.walk_speed * agent.facing
-                MoveTimer(self.t + 1., self.timers, agent)
-            elif action == Action.BACKWARD:
-                agent.vel = - agent.walk_speed * agent.facing
-                MoveTimer(self.t + 1., self.timers, agent)
-            elif action == Action.ATTACK:
-                agent.vel = 0.
-                if agent.weapon is not None:
-                    if not agent.weapon.on_cooldown:
-                        shot = agent.weapon.shoot(self.t, self.timers, agent.pos, agent.facing, agent.shot_collision_layer)
-                        self.state.append(shot)
-            elif action == Action.REVERSE_FACING:
-                agent.facing = reverse_facing(agent.facing)
+            if agent.state == AgentState.READY:
+                if action == Action.FORWARD:
+                    agent.vel = agent.walk_speed * agent.facing
+                    timer = MoveTimer(self.t + 1., self.timers, agent)
+                    self.timers.push(timer)
+                elif action == Action.BACKWARD:
+                    agent.vel = - agent.walk_speed * agent.facing
+                    timer = MoveTimer(self.t + 1., self.timers, agent)
+                    self.timers.push(timer)
+                elif action == Action.ATTACK:
+                    agent.vel = 0.
+                    if agent.weapon is not None:
+                        if not agent.weapon.on_cooldown:
+                            agent.state = AgentState.WINDUP
+                            timer = WindupTimer(self.t + agent.weapon.windup_time, agent.weapon, agent)
+                            self.timers.push(timer)
+                elif action == Action.REVERSE_FACING:
+                    agent.facing = reverse_facing(agent.facing)
 
         print(f'TIMERS: {self.timers}')
 
@@ -579,7 +601,7 @@ class Env:
         # now fire any timer events
         if not self.timers.is_empty():
             while self.t == self.timers.peek().t:
-                self.timers.pop().on_expire()
+                self.timers.pop().on_expire(self)
                 if self.timers.is_empty():
                     break
 
@@ -642,8 +664,8 @@ class Env:
 
 if __name__ == "__main__":
 
-    sword = Weapon(damage=10, shot_speed=0.5, time_to_live=0.04, cooldown_time=0.1, shot_width=0.01)
-    bow = Weapon(damage=3, shot_speed=0.7, time_to_live=1, cooldown_time=0.3)
+    sword = Weapon(damage=10, shot_speed=0.5, time_to_live=0.04, cooldown_time=0.1, shot_width=0.01, windup_time=0.1)
+    bow = Weapon(damage=3, shot_speed=0.7, time_to_live=1, cooldown_time=0.3, windup_time=0.3)
     player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
     player.weapon = sword
     enemy = Agent(pos=0.9, facing=Direction.WEST)
@@ -782,9 +804,10 @@ if __name__ == "__main__":
                         info['initial_state'][key].pos += info['initial_state'][key].vel / fps
                         draw(info['initial_state'])
                 draw(state)
-                print([[s[0].name, s[1].name] for s in trajectory])
+
 
             if done:
+                print([[s[0].name, s[1].name] for s in trajectory])
                 state = env.reset()
                 draw(state)
                 done = False
