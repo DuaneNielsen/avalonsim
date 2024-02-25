@@ -11,6 +11,7 @@ CL_PLAYER = "team_player"
 CL_ENEMY = "team_enemy"
 CL_PLAYER_SHOTS = "player_shots"
 CL_ENEMY_SHOTS = "enemy_shots"
+CL_RANGEFINDER = "rangefinder"
 
 
 class Direction(IntEnum):
@@ -78,7 +79,27 @@ def overlap(base1, base2):
     return between(base1, base2.faces[0].pos) or between(base1, base2.faces[1].pos)
 
 
-class Base:
+class Vertex:
+    def __init__(self, pos):
+        self.parent = None
+        self._pos = pos
+        self.collision_layer = None
+
+    @property
+    def pos(self):
+        return self.parent.pos + self._pos
+
+    def __repr__(self):
+        return f"{self.__class__.__name__} {self.pos}"
+
+
+class RangeFinder(Vertex):
+    def __init__(self, pos):
+        super().__init__(pos)
+        self.collision_layer = CL_RANGEFINDER
+
+
+class Body:
     def __init__(self):
         self.id = None
         self.pos = 0
@@ -87,6 +108,7 @@ class Base:
         self.facing = Direction.EAST
         self.delete = False
         self.collision_layer = ""
+        self._vertices = []
 
     @property
     def faces(self):
@@ -101,6 +123,15 @@ class Base:
                 Face(self, self.pos + self.width / 2, FaceDirection.BACK)
             ]
 
+    def add_vertex(self, vertex):
+        vertex.parent = self
+        self._vertices += [vertex]
+        self._vertices.sort(key=lambda vertex: vertex.pos)
+
+    @property
+    def vertices(self):
+        return self._vertices
+
     def direction(self, other):
         return Direction.WEST if other.pos < self.pos else Direction.EAST
 
@@ -114,12 +145,12 @@ class Base:
         return f"{self.__class__.__name__} {self.id} face: {self.facing.name} pos: {self.pos} vel: {self.vel}"
 
 
-class Static(Base):
+class Static(Body):
     def __init__(self):
         super().__init__()
 
 
-class Dynamic(Base):
+class Dynamic(Body):
     def __init__(self):
         super().__init__()
 
@@ -163,12 +194,6 @@ class Shot(Dynamic):
         self.collision_layer = collision_layer
         self.width = width
         self.timer = None
-
-
-class RangeFinder(Dynamic):
-    def __init__(self):
-        super().__init__()
-        self.width = 0.001
 
 
 class CollisionHandler:
@@ -251,6 +276,14 @@ class DeleteSelf(Collision):
 
 delete_self = DeleteSelf()
 
+
+class RangeFinderCollision(Collision):
+    pass
+
+
+rangefinder = RangeFinderCollision()
+
+
 collision_handler = CollisionHandler()
 collision_handler.add_handler(CL_PLAYER, CL_ENEMY, dynamic_stop, can_constrain=True)
 collision_handler.add_handler(CL_ENEMY, CL_PLAYER, dynamic_stop, can_constrain=True)
@@ -260,6 +293,8 @@ collision_handler.add_handler(CL_PLAYER_SHOTS, CL_WALLS, delete_self)
 collision_handler.add_handler(CL_ENEMY_SHOTS, CL_WALLS, delete_self)
 collision_handler.add_handler(CL_ENEMY_SHOTS, CL_PLAYER, apply_damage_and_delete)
 collision_handler.add_handler(CL_PLAYER_SHOTS, CL_ENEMY, apply_damage_and_delete)
+collision_handler.add_handler(CL_RANGEFINDER, CL_PLAYER, rangefinder)
+collision_handler.add_handler(CL_RANGEFINDER, CL_ENEMY, rangefinder)
 
 
 class ShotTimer(Timer):
@@ -278,8 +313,7 @@ class WindupTimer(Timer):
         self.agent = agent
 
     def on_expire(self, env):
-        t = env.t + self.weapon.ttl
-        shot = self.agent.weapon.shoot(t, env.timers, self.agent.pos, self.agent.facing, self.agent.shot_collision_layer)
+        shot = self.agent.weapon.shoot(env.t, env.timers, self.agent.pos, self.agent.facing, self.agent.shot_collision_layer)
         env.state.append(shot)
         if self.agent.weapon.recovery_time > 0.:
             self.agent.state = AgentState.RECOVERY
@@ -329,6 +363,10 @@ class Weapon:
         self.ttl = time_to_live
         self.time_alive = 0.
         self.shot_width = shot_width
+
+    @property
+    def range(self):
+        return self.shot_speed * self.ttl + self.shot_width / 2
 
     def shoot(self, t, timer_q, pos, direction, collision_layer):
         shot = Shot(direction, pos, self.shot_speed * direction, self.damage, collision_layer, self.shot_width)
@@ -450,6 +488,41 @@ class VelBasePathIter:
             raise StopIteration()
 
 
+class DirectedVertexBodyIter:
+    def __init__(self, sorted_body_map, i, reverse=False, check_zero_vel=False):
+        self.body_map = sorted_body_map
+        self.body = sorted_body_map[i]
+        self.direction = sign(sorted_body_map[i].vel)
+        if check_zero_vel and self.direction == 0:
+            self.direction = -1 if reverse else 1
+        self.face_idx = 0 if self.body.vel > 0 else 1
+
+        self.iterator = []
+        if self.direction > 0 ^ reverse:
+            for v in reversed(list(range(len(self.body.vertices)))):
+                for j in list(range(i+1, len(sorted_body_map))):
+                    self.iterator += [(v, j)]
+        else:
+            for v in range(len(self.body.vertices)):
+                for j in reversed(list(range(0, i))):
+                    self.iterator += [(v, j)]
+        self.i = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.direction == 0:
+            raise StopIteration()
+        if self.i < len(self.iterator):
+            v, j = self.iterator[self.i]
+            vertex, face = self.body.vertices[v], self.body_map[j].faces[self.face_idx]
+            self.i += 1
+            return vertex, face
+        else:
+            raise StopIteration()
+
+
 class AdjacentPairs:
     def __init__(self, list):
         self.list = list
@@ -526,12 +599,8 @@ class Env:
             if agent.state == AgentState.READY:
                 if action == Action.FORWARD:
                     agent.vel = agent.walk_speed * agent.facing
-                    timer = MoveTimer(self.t + 1., self.timers, agent)
-                    self.timers.push(timer)
                 elif action == Action.BACKWARD:
                     agent.vel = - agent.walk_speed * agent.facing
-                    timer = MoveTimer(self.t + 1., self.timers, agent)
-                    self.timers.push(timer)
                 elif action == Action.ATTACK:
                     agent.vel = 0.
                     if agent.weapon is not None:
@@ -587,6 +656,28 @@ class Env:
                             # print("fc", (dt_adj, dt), left_x, right_x)
                             if dt_adj < dt:
                                 next_collision = left_x, right_x
+                            dt = min(dt, dt_adj)
+                            break
+
+        # vertex system, probably should upgrade the previous collision finder loop to use this instead
+        for i in range(len(sorted_map)):
+            for vertex, face in DirectedVertexBodyIter(sorted_map, i, check_zero_vel=True):
+                if collision_handler.can_collide(vertex, face):
+                    if not close(vertex.pos, face.pos):
+                        dt_adj = dt_to_collision(vertex.pos, vertex.parent.vel, face.pos, face.parent.vel)
+                        if dt_adj > 0 and dt_adj != inf:
+                            if dt_adj < dt:
+                                next_collision = vertex, face
+                            dt = min(dt, dt_adj)
+                            break
+
+            for vertex, face in DirectedVertexBodyIter(sorted_map, i, reverse=True, check_zero_vel=True):
+                if collision_handler.can_collide(vertex, face):
+                    if not close(vertex.pos, face.pos):
+                        dt_adj = dt_to_collision(vertex.pos, vertex.parent.vel, face.pos, face.parent.vel)
+                        if dt_adj > 0 and dt_adj != inf:
+                            if dt_adj < dt:
+                                next_collision = vertex, face
                             dt = min(dt, dt_adj)
                             break
 
@@ -678,11 +769,15 @@ class Env:
 if __name__ == "__main__":
 
     sword = Weapon(damage=10, shot_speed=0.5, time_to_live=0.04, cooldown_time=0.1, shot_width=0.01, windup_time=0.1, recovery_time=0.04)
-    bow = Weapon(damage=3, shot_speed=0.7, time_to_live=1, cooldown_time=0.3, windup_time=0.3)
+    bow = Weapon(damage=3, shot_speed=0.5, time_to_live=1., cooldown_time=0.3, windup_time=0.3)
     player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
-    player.weapon = sword
+    player.weapon = bow
+    player.add_vertex(RangeFinder(player.weapon.range))
+    player.add_vertex(RangeFinder(-player.weapon.range))
     enemy = Agent(pos=0.9, facing=Direction.WEST)
-    enemy.weapon = bow
+    enemy.weapon = sword
+    enemy.add_vertex(RangeFinder(enemy.weapon.range))
+    enemy.add_vertex(RangeFinder(-enemy.weapon.range))
     map = [player, enemy]
     env = Env(map)
 
@@ -696,7 +791,7 @@ if __name__ == "__main__":
 
     screen = pygame.display.set_mode((screen_width, screen_height))
     fps = 50
-    speed = 0.5
+    speed = 4
 
 
     def to_screen(*args):
@@ -768,7 +863,7 @@ if __name__ == "__main__":
                 bar = pygame.Rect(x, y, width, height)
                 pygame.draw.rect(screen, color, bar)
 
-        pygame.display.update()
+        pygame.display.flip()
         pygame.time.wait(floor(100/speed/fps))
 
 
@@ -790,6 +885,7 @@ if __name__ == "__main__":
 
             if event.type == pygame.KEYDOWN:
                 enemy_action = Action(random.choice(range(4)))
+                enemy_action = Action.PASS
                 if event.key == pygame.K_a:
                     actions = [Action.BACKWARD, enemy_action]
                 elif event.key == pygame.K_d:
@@ -817,7 +913,6 @@ if __name__ == "__main__":
                         info['initial_state'][key].pos += info['initial_state'][key].vel / fps
                         draw(info['initial_state'])
                 draw(state)
-
 
             if done:
                 print([[s[0].name, s[1].name] for s in trajectory])

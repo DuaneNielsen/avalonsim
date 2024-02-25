@@ -9,7 +9,7 @@ from main import collision_handler
 from main import State
 from main import VelFacePathIter
 from main import get_contact_groups
-
+from main import DirectedVertexBodyIter, Vertex
 
 def test_base():
     agent1 = Agent(pos=0.1)
@@ -63,6 +63,59 @@ def test_overlap():
     agent1 = Agent(pos=0.9945007000000003)
     agent2 = Agent(pos=0.9945014000000001)
     assert overlap(agent1, agent2)
+
+
+def test_iterator():
+    sword = Weapon(damage=10, shot_speed=0.5, time_to_live=0.04, cooldown_time=0.1, shot_width=0.01, windup_time=0.1, recovery_time=0.04)
+    bow = Weapon(damage=3, shot_speed=0.7, time_to_live=1, cooldown_time=0.3, windup_time=0.3)
+    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+    player.weapon = sword
+    enemy = Agent(pos=0.9, facing=Direction.WEST)
+    enemy.weapon = bow
+    player.add_vertex(Vertex(-0.5))
+    player.add_vertex(Vertex(0.3))
+    enemy.add_vertex(Vertex(-0.5))
+    enemy.add_vertex(Vertex(0.3))
+    west_wall, east_wall = Wall(0, Direction.EAST), Wall(1., Direction.WEST)
+    sorted_map = [west_wall, player, enemy, east_wall]
+    player.vel = 0.2
+    enemy.vel = -0.2
+
+    order = []
+
+    print('')
+
+    for vertex, face in DirectedVertexBodyIter(sorted_map, 1):
+        order += [(vertex, face)]
+
+    assert len(order) == 4
+
+    assert order[0][0].pos == 0.3 + player.pos
+    assert order[1][0].pos == 0.3 + player.pos
+    assert order[2][0].pos == -0.5 + player.pos
+    assert order[3][0].pos == -0.5 + player.pos
+
+    assert order[0][1].pos == enemy.pos - enemy.width / 2
+    assert order[1][1].pos == east_wall.pos - east_wall.width / 2
+    assert order[2][1].pos == enemy.pos - enemy.width / 2
+    assert order[3][1].pos == east_wall.pos - east_wall.width / 2
+
+    order = []
+
+    for vertex, face in DirectedVertexBodyIter(sorted_map, 2):
+        order += [(vertex, face)]
+
+    assert len(order) == 4
+
+    assert order[0][0].pos == enemy.pos - 0.5
+    assert order[1][0].pos == enemy.pos - 0.5
+    assert order[2][0].pos == enemy.pos + 0.3
+    assert order[3][0].pos == enemy.pos + 0.3
+
+    assert order[0][1].pos == player.pos + player.width / 2
+    assert order[1][1].pos == west_wall.pos + west_wall.width / 2
+    assert order[2][1].pos == player.pos + player.width / 2
+    assert order[3][1].pos == west_wall.pos + west_wall.width / 2
 
 
 def test_walls_and_simple_movement():
