@@ -771,11 +771,11 @@ if __name__ == "__main__":
     sword = Weapon(damage=10, shot_speed=0.5, time_to_live=0.04, cooldown_time=0.1, shot_width=0.01, windup_time=0.1, recovery_time=0.04)
     bow = Weapon(damage=3, shot_speed=0.5, time_to_live=1., cooldown_time=0.3, windup_time=0.3)
     player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
-    player.weapon = bow
+    player.weapon = sword
     player.add_vertex(RangeFinder(player.weapon.range))
     player.add_vertex(RangeFinder(-player.weapon.range))
     enemy = Agent(pos=0.9, facing=Direction.WEST)
-    enemy.weapon = sword
+    enemy.weapon = bow
     enemy.add_vertex(RangeFinder(enemy.weapon.range))
     enemy.add_vertex(RangeFinder(-enemy.weapon.range))
     map = [player, enemy]
@@ -885,7 +885,6 @@ if __name__ == "__main__":
 
             if event.type == pygame.KEYDOWN:
                 enemy_action = Action(random.choice(range(4)))
-                enemy_action = Action.PASS
                 if event.key == pygame.K_a:
                     actions = [Action.BACKWARD, enemy_action]
                 elif event.key == pygame.K_d:
