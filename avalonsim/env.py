@@ -2,17 +2,18 @@ from math import inf
 import uuid
 from enum import IntEnum, Enum
 from copy import deepcopy
+import numpy as np
 
 from avalonsim.timer import TimerQueue, Timer
 
 
-class CollisionLayer(str, Enum):
-    WALLS = "walls"
-    PLAYER = "team_player"
-    ENEMY = "team_enemy"
-    PLAYER_SHOTS = "player_shots"
-    ENEMY_SHOTS = "enemy_shots"
-    RANGEFINDER = "rangefinder"
+class CollisionLayer(IntEnum):
+    WALLS = 0
+    PLAYER = 1
+    ENEMY = 2
+    PLAYER_SHOTS = 3
+    ENEMY_SHOTS = 4
+    RANGEFINDER = 5
 
 
 class Direction(IntEnum):
@@ -152,6 +153,8 @@ class Body:
     def __repr__(self):
         return f"{self.__class__.__name__} {self.id} face: {self.facing.name} pos: {self.pos} vel: {self.vel}"
 
+    def as_numpy(self):
+        return np.array([self.pos, self.vel])
 
 class Static(Body):
     def __init__(self):
@@ -191,6 +194,8 @@ class Agent(Dynamic):
         self.width = 0.01
         self.state = AgentState.READY
 
+    def as_numpy(self):
+        return np.array([self.pos, self.vel, self.hp/self.hp_max, self.state])
 
 class Shot(Dynamic):
     def __init__(self, facing, pos, vel, damage, collision_layer, width):
@@ -457,6 +462,9 @@ class State:
     def __repr__(self):
         return str(self.get_sorted_collision_map())
 
+    def as_numpy(self):
+        return np.concatenate([value.as_numpy() for key, value in self.items()])
+
 
 class VelFacePathIter:
     def __init__(self, sorted_base_map, i):
@@ -580,13 +588,14 @@ def contains(list, basetype):
 
 
 class Env:
-    def __init__(self, map):
+    def __init__(self, map, state_format="numpy"):
 
         # make the axis finite by placing walls at each end
         self._map = [Wall(0., Direction.EAST), Wall(1.0, Direction.WEST)] + map
         self.state = State(deepcopy(self._map))
         self.t = 0.
         self.timers = TimerQueue(self)
+        self.state_format = state_format
 
         # check for overlaps
         base_map = self.state.get_sorted_base_map()
@@ -597,7 +606,10 @@ class Env:
     def reset(self):
         self.state = State(deepcopy(self._map))
         self.t = 0.
-        return self.state
+        if self.state_format == "numpy":
+            return self.state.as_numpy()
+        else:
+            return self.state
 
     def step(self, actions, render=False):
 
@@ -696,7 +708,10 @@ class Env:
 
         if dt == inf:
             print(dt, "EVENT: NO COLLISION")
-            return self.state, reward, done, {'t': self.t, 'dt': 0, 'initial_state': initial_state}
+            if self.state_format == "numpy":
+                return self.state.as_numpy(), reward, done, {'t': self.t, 'dt': 0, 'initial_state': initial_state}
+            else:
+                return self.state, reward, done, {'t': self.t, 'dt': 0, 'initial_state': initial_state}
         else:
             if dt == next_timer:
                 print(dt, "EVENT: TIMER", self.timers.peek())
@@ -774,4 +789,7 @@ class Env:
                 elif agent.collision_layer == CollisionLayer.ENEMY:
                     reward, done = 1., True
 
-        return self.state, reward, done, {'t': self.t, 'dt': dt, 'initial_state': initial_state}
+        if self.state_format == "numpy":
+            return self.state.as_numpy(), reward, done, {'t': self.t, 'dt': dt, 'initial_state': initial_state}
+        else:
+            return self.state, reward, done, {'t': self.t, 'dt': dt, 'initial_state': initial_state}
