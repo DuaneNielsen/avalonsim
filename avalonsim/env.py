@@ -4,7 +4,11 @@ from enum import IntEnum, Enum
 from copy import deepcopy
 import numpy as np
 from avalonsim.timer import TimerQueue, Timer
+from avalonsim.render import start_screen, draw_rect, to_screen
 import gym
+import pygame
+from math import floor, ceil
+import copy
 
 
 class CollisionLayer(IntEnum):
@@ -37,7 +41,7 @@ def reverse_facing(facing):
 
 
 class Action(IntEnum):
-    PASS = 0
+    NOOP = 0
     FORWARD = 1
     BACKWARD = 2
     ATTACK = 3
@@ -450,6 +454,13 @@ class State:
     def items(self):
         return self._state.items()
 
+    def __copy__(self):
+        copy_state = State()
+        for key, value in self.items():
+            print(value)
+            copy_state.append(copy.copy(value))
+        return copy_state
+
     def __len__(self):
         return len(self._state)
 
@@ -588,7 +599,44 @@ def contains(list, basetype):
     return None
 
 
-class Env:
+def draw(screen, state):
+    screen.fill((0, 0, 0))
+
+    for static in state.statics:
+        draw_rect(screen, static, 1., static.width, "grey")
+
+    for agent in state.agents:
+        if agent.collision_layer == CollisionLayer.PLAYER:
+            color = "blue"
+        elif agent.collision_layer == CollisionLayer.ENEMY:
+            color = "darkorchid"
+        else:
+            color = "green"
+
+        draw_rect(screen, agent, 0.6 * agent.hp / agent.hp_max, agent.width, color)
+
+    for shot in state.shots:
+        if shot.collision_layer == CollisionLayer.PLAYER_SHOTS:
+            draw_rect(screen, shot, 0.4, shot.width, "lightgoldenrod1")
+        if shot.collision_layer == CollisionLayer.ENEMY_SHOTS:
+            draw_rect(screen, shot, 0.4, shot.width, "red")
+
+    for i, agent in enumerate(state.agents):
+        if agent.weapon:
+            if agent.weapon.on_cooldown:
+                color = pygame.Color("red")
+            else:
+                color = pygame.Color("green")
+            x = 0.4 + i * 0.2
+            x, y, width, height = to_screen(x, 0.9, 0.05, 0.05)
+            bar = pygame.Rect(x, y, width, height)
+            pygame.draw.rect(screen, color, bar)
+
+    pygame.display.flip()
+
+
+class Env(gym.Env):
+
     def __init__(self, map, state_format="numpy", state_fixed_len=32):
 
         # make the axis finite by placing walls at each end
@@ -608,15 +656,24 @@ class Env:
         self.observation_space = gym.spaces.Box(0, 1, shape=(state_fixed_len,))
         self.action_space = gym.spaces.Discrete(len(Action))
 
+        # for rendering the environment
+        self.screen = None
+        self.initial_state = None
+        self.dt = None
+
+    def get_action_meanings(self):
+        return [a.name for a in Action]
+
     def reset(self):
         self.state = State(deepcopy(self._map))
         self.t = 0.
+        self.dt = 0.
         if self.state_format == "numpy":
             return self.state.as_numpy(self.state_fixed_len)
         else:
             return self.state
 
-    def step(self, actions, render=False):
+    def step(self, actions):
 
         done = False
         reward = 0.
@@ -666,9 +723,8 @@ class Env:
                     speed = min(speed, abs(next_in_path.vel))
                 element.vel = speed * vel_dir
 
-        initial_state = None
-        if render:
-            initial_state = deepcopy(self.state)
+        if self.screen:
+            self.initial_state = copy.copy(self.state)
 
         # for objects not in contact, compute future collisions and find the nearest in time
         next_collision = None
@@ -714,9 +770,9 @@ class Env:
         if dt == inf:
             print(dt, "EVENT: NO COLLISION")
             if self.state_format == "numpy":
-                return self.state.as_numpy(self.state_fixed_len), reward, done, {'t': self.t, 'dt': 0, 'initial_state': initial_state}
+                return self.state.as_numpy(self.state_fixed_len), reward, done, {'t': self.t, 'dt': 0, 'initial_state': self.initial_state}
             else:
-                return self.state, reward, done, {'t': self.t, 'dt': 0, 'initial_state': initial_state}
+                return self.state, reward, done, {'t': self.t, 'dt': 0, 'initial_state': self.initial_state}
         else:
             if dt == next_timer:
                 print(dt, "EVENT: TIMER", self.timers.peek())
@@ -727,6 +783,7 @@ class Env:
         for _, left_x in self.state.items():
             left_x.pos += left_x.vel * dt
         self.t += dt
+        self.dt = dt
 
         collision_map = self.state.get_sorted_collision_map()
         collisions = []
@@ -795,6 +852,21 @@ class Env:
                     reward, done = 1., True
 
         if self.state_format == "numpy":
-            return self.state.as_numpy(self.state_fixed_len), reward, done, {'t': self.t, 'dt': dt, 'initial_state': initial_state}
+            return self.state.as_numpy(self.state_fixed_len), reward, done, {'t': self.t, 'dt': dt, 'initial_state': self.initial_state}
         else:
-            return self.state, reward, done, {'t': self.t, 'dt': dt, 'initial_state': initial_state}
+            return self.state, reward, done, {'t': self.t, 'dt': dt, 'initial_state': self.initial_state}
+
+    def render(self, mode="human", speed=1., fps=50):
+
+        if self.screen is None:
+            self.screen = start_screen()
+        draw(self.screen, self.state)
+        pygame.time.wait(floor(100 / speed / fps))
+
+        if mode == "human":
+            if self.initial_state is not None:
+                for dt in range(ceil(self.dt * fps)):
+                    for key, item in self.initial_state.items():
+                        self.initial_state[key].pos += self.initial_state[key].vel / fps
+                        draw(self.screen, self.initial_state)
+        draw(self.screen, self.state)

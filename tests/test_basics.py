@@ -229,7 +229,7 @@ def test_agent_agent_collision_wait():
     map = [agent1, agent2]
     env = Env(map)
     state = env.reset()
-    state, reward, done, info = env.step([Action.PASS, Action.FORWARD])
+    state, reward, done, info = env.step([Action.NOOP, Action.FORWARD])
 
     print(state)
     assert state.agents[0].pos == 0.1
