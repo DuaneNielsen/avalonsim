@@ -1,15 +1,16 @@
-from main import Wall, Agent, Weapon
-from main import Action, Direction
-from main import CL_PLAYER, CL_ENEMY, CL_PLAYER_SHOTS, CL_ENEMY_SHOTS
-from main import Env
-from timer import TimerQueue, Timer
-from main import close, between, overlap
+
+from avalonsim import Wall, Agent, Weapon
+from avalonsim import Action, Direction
+from avalonsim import CollisionLayer
+from avalonsim import Env
+from avalonsim.timer import TimerQueue, Timer
+from avalonsim import close, between, overlap
 import random
-from main import collision_handler
-from main import State
-from main import VelFacePathIter
-from main import get_contact_groups
-from main import DirectedVertexBodyIter, Vertex
+from avalonsim.env import collision_handler
+from avalonsim.env import State
+from avalonsim.env import VelFacePathIter
+from avalonsim.env import get_contact_groups
+from avalonsim.env import DirectedVertexBodyIter, Vertex
 
 def test_base():
     agent1 = Agent(pos=0.1)
@@ -68,7 +69,7 @@ def test_overlap():
 def test_iterator():
     sword = Weapon(damage=10, shot_speed=0.5, time_to_live=0.04, cooldown_time=0.1, shot_width=0.01, windup_time=0.1, recovery_time=0.04)
     bow = Weapon(damage=3, shot_speed=0.7, time_to_live=1, cooldown_time=0.3, windup_time=0.3)
-    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CollisionLayer.PLAYER, shot_collision_layer=CollisionLayer.PLAYER_SHOTS)
     player.weapon = sword
     enemy = Agent(pos=0.9, facing=Direction.WEST)
     enemy.weapon = bow
@@ -121,7 +122,7 @@ def test_iterator():
 def test_walls_and_simple_movement():
     print()
 
-    map = [Agent(pos=0.5, facing=Direction.EAST, collision_layer=CL_PLAYER)]
+    map = [Agent(pos=0.5, facing=Direction.EAST, collision_layer=CollisionLayer.PLAYER)]
     env = Env(map)
     state = env.reset()
     assert state.agents[0].pos == 0.5
@@ -179,8 +180,8 @@ def test_walls_and_simple_movement():
 
 def test_agent_agent_collision_simple():
     # two agents meet halfway
-    agent1 = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER)
-    agent2 = Agent(pos=0.9, facing=Direction.WEST, collision_layer=CL_ENEMY)
+    agent1 = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CollisionLayer.PLAYER)
+    agent2 = Agent(pos=0.9, facing=Direction.WEST, collision_layer=CollisionLayer.ENEMY)
     map = [agent1, agent2]
     env = Env(map)
     state = env.reset()
@@ -208,8 +209,8 @@ def test_agent_agent_collision_simple():
 
 def test_agent_agent_collision_chase():
     # two agents meet halfway
-    agent1 = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER)
-    agent2 = Agent(pos=0.15, walk_speed=0.05, facing=Direction.EAST, collision_layer=CL_ENEMY)
+    agent1 = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CollisionLayer.PLAYER)
+    agent2 = Agent(pos=0.15, walk_speed=0.05, facing=Direction.EAST, collision_layer=CollisionLayer.ENEMY)
     agent2.pos += agent2.width / 2
     map = [agent1, agent2]
     env = Env(map)
@@ -223,8 +224,8 @@ def test_agent_agent_collision_chase():
 
 
 def test_agent_agent_collision_wait():
-    agent1 = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER)
-    agent2 = Agent(pos=0.5, walk_speed=0.05, facing=Direction.WEST, collision_layer=CL_ENEMY)
+    agent1 = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CollisionLayer.PLAYER)
+    agent2 = Agent(pos=0.5, walk_speed=0.05, facing=Direction.WEST, collision_layer=CollisionLayer.ENEMY)
     map = [agent1, agent2]
     env = Env(map)
     state = env.reset()
@@ -241,8 +242,8 @@ def test_agent_agent_collision_wait():
 
 def test_shoot_wall():
     print()
-    player = Agent(pos=0.5, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
-    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01, action_blocking=True)
+    player = Agent(pos=0.5, facing=Direction.EAST, collision_layer=CollisionLayer.PLAYER, shot_collision_layer=CollisionLayer.PLAYER_SHOTS)
+    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01)
     player.weapon = sword
 
     map = [player]
@@ -251,6 +252,7 @@ def test_shoot_wall():
     assert state.agents[0].pos == 0.5
     assert len(state.dynamics) == 1
     state, reward, done, info = env.step([Action.ATTACK])
+    state, reward, done, info = env.step([Action.ATTACK])
 
     # the shot should hit the wall and vanish
     assert len(state.dynamics) == 1
@@ -258,11 +260,11 @@ def test_shoot_wall():
 
 def test_sword():
     print()
-    player = Agent(pos=0.4, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
-    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01, action_blocking=True)
+    player = Agent(pos=0.4, facing=Direction.EAST, collision_layer=CollisionLayer.PLAYER, shot_collision_layer=CollisionLayer.PLAYER_SHOTS)
+    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01)
     player.weapon = sword
-    enemy = Agent(pos=0.6, facing=Direction.WEST, collision_layer=CL_ENEMY, shot_collision_layer=CL_ENEMY_SHOTS)
-    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01, action_blocking=True)
+    enemy = Agent(pos=0.6, facing=Direction.WEST, collision_layer=CollisionLayer.ENEMY, shot_collision_layer=CollisionLayer.ENEMY_SHOTS)
+    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01)
     enemy.weapon = sword
     map = [player, enemy]
     env = Env(map)
@@ -282,7 +284,8 @@ def test_sword():
 
 
 def test_timer():
-    tq = TimerQueue()
+    env = Env(map=[])
+    tq = TimerQueue(env)
     timer1, timer2, timer3 = Timer(1.), Timer(2.), Timer(3.)
 
     assert tq.is_empty()
@@ -309,8 +312,8 @@ def test_timer():
 
 
 def test_wall_hack():
-    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01, action_blocking=True)
-    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01)
+    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CollisionLayer.PLAYER, shot_collision_layer=CollisionLayer.PLAYER_SHOTS)
     player.weapon = sword
     enemy = Agent(pos=0.9)
     enemy.weapon = sword
@@ -349,8 +352,8 @@ def test_wall_hack():
 
 
 def test_shot_penetrate_rules():
-    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01, action_blocking=True)
-    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01)
+    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CollisionLayer.PLAYER, shot_collision_layer=CollisionLayer.PLAYER_SHOTS)
     player.weapon = sword
     enemy = Agent(pos=0.9)
     enemy.weapon = sword
@@ -427,8 +430,8 @@ def test_random_seed_42():
                         assert False
 
     random.seed(42)
-    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.00001, action_blocking=True)
-    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.00001)
+    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CollisionLayer.PLAYER, shot_collision_layer=CollisionLayer.PLAYER_SHOTS)
     player.weapon = sword
     enemy = Agent(pos=0.9)
     enemy.weapon = sword
@@ -459,9 +462,9 @@ def test_random_seed_42():
 
 
 def test_no_action():
-    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01, action_blocking=True)
+    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01)
     bow = Weapon(damage=3, shot_speed=0.3, time_to_live=0.5)
-    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CollisionLayer.PLAYER, shot_collision_layer=CollisionLayer.PLAYER_SHOTS)
     player.weapon = sword
     enemy = Agent(pos=0.9)
     enemy.weapon = sword
@@ -493,9 +496,9 @@ def test_no_action():
 
 
 def test_directional_iterator():
-    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01, action_blocking=True)
+    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01)
     bow = Weapon(damage=3, shot_speed=0.3, time_to_live=0.5)
-    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CollisionLayer.PLAYER, shot_collision_layer=CollisionLayer.PLAYER_SHOTS)
     player.weapon = sword
     player.vel = 0.1
     enemy = Agent(pos=0.9)
@@ -520,9 +523,9 @@ def test_directional_iterator():
 
 
 def test_contact_groups():
-    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01, action_blocking=True)
+    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01)
     bow = Weapon(damage=3, shot_speed=0.3, time_to_live=0.5)
-    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CollisionLayer.PLAYER, shot_collision_layer=CollisionLayer.PLAYER_SHOTS)
     width = player.width
     player.weapon = sword
     player.vel = 0.1
@@ -543,13 +546,13 @@ def test_contact_groups():
     assert player.id == contact_groups[0][0].id
     assert enemy.id == contact_groups[0][1].id
 
-    player1 = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+    player1 = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CollisionLayer.PLAYER, shot_collision_layer=CollisionLayer.PLAYER_SHOTS)
     enemy1 = Agent(pos=0.1 + width)
-    player2 = Agent(pos=0.1 + 2 * width, facing=Direction.EAST, collision_layer=CL_PLAYER,
-                    shot_collision_layer=CL_PLAYER_SHOTS)
+    player2 = Agent(pos=0.1 + 2 * width, facing=Direction.EAST, collision_layer=CollisionLayer.PLAYER,
+                    shot_collision_layer=CollisionLayer.PLAYER_SHOTS)
     enemy2 = Agent(pos=0.1 + 4 * width)
-    player3 = Agent(pos=0.1 + 5 * width, facing=Direction.EAST, collision_layer=CL_PLAYER,
-                    shot_collision_layer=CL_PLAYER_SHOTS)
+    player3 = Agent(pos=0.1 + 5 * width, facing=Direction.EAST, collision_layer=CollisionLayer.PLAYER,
+                    shot_collision_layer=CollisionLayer.PLAYER_SHOTS)
 
     map = [Wall(0, Direction.EAST), player1, enemy1, player2, enemy2, player3, Wall(1., Direction.WEST)]
 
@@ -565,9 +568,9 @@ def test_contact_groups():
 
 
 def test_attackfest():
-    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01, action_blocking=True)
+    sword = Weapon(damage=10, shot_speed=100, time_to_live=0.01)
     bow = Weapon(damage=3, shot_speed=0.3, time_to_live=0.5)
-    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CL_PLAYER, shot_collision_layer=CL_PLAYER_SHOTS)
+    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CollisionLayer.PLAYER, shot_collision_layer=CollisionLayer.PLAYER_SHOTS)
     player.weapon = sword
     enemy = Agent(pos=0.9, facing=Direction.WEST)
     enemy.weapon = sword
@@ -589,11 +592,11 @@ def test_attackfest():
         west_wall, east_wall = cmap[1].pos, cmap[-2].pos
         shots = state.dynamics[2:]
         if len(state.shots) > 0:
-            if state.shots[0].collision_layer == CL_ENEMY_SHOTS:
+            if state.shots[0].collision_layer == CollisionLayer.ENEMY_SHOTS:
                 assert state.agents[0].faces[1].pos <= state.shots[0].faces[0].pos
                 assert state.agents[1].pos >= state.shots[0].faces[1].pos
 
-            if state.shots[0].collision_layer == CL_PLAYER_SHOTS:
+            if state.shots[0].collision_layer == CollisionLayer.PLAYER_SHOTS:
                 assert state.agents[0].pos <= state.shots[0].faces[0].pos
                 assert state.agents[1].faces[0].pos >= state.shots[0].faces[1].pos
 
