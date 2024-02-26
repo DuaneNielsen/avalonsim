@@ -1,6 +1,6 @@
 from avalonsim import Weapon, Agent, Direction, RangeFinder, CollisionLayer, Env, Action
 import random
-
+import cv2
 
 if __name__ == "__main__":
 
@@ -24,7 +24,8 @@ if __name__ == "__main__":
     state = env.reset()
     print(state)
 
-    env.render()
+    rgb = env.render(mode='rgb')
+    cv2.imshow("screen", rgb)
     random.seed(42)
 
     trajectory = []
@@ -59,12 +60,14 @@ if __name__ == "__main__":
                 state, reward, done, info = env.step(actions)
                 print(state, reward, done)
 
-                env.render()
+                rgb = env.render(mode='rgb')
+                cv2.imshow("screen", rgb)
 
             if done:
                 print([[s[0].name, s[1].name] for s in trajectory])
                 state = env.reset()
-                env.render()
+                rgb = env.render(mode='rgb')
+                cv2.imshow("screen", rgb)
                 done = False
                 trajectory = []
 

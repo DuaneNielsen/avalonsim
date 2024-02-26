@@ -869,4 +869,8 @@ class Env(gym.Env):
                     for key, item in self.initial_state.items():
                         self.initial_state[key].pos += self.initial_state[key].vel / fps
                         draw(self.screen, self.initial_state)
+
         draw(self.screen, self.state)
+
+        if mode == 'rgb':
+            return np.swapaxes(pygame.surfarray.array3d(self.screen), 0, 1)
