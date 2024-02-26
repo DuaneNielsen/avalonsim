@@ -3,8 +3,8 @@ import uuid
 from enum import IntEnum, Enum
 from copy import deepcopy
 import numpy as np
-
 from avalonsim.timer import TimerQueue, Timer
+import gym
 
 
 class CollisionLayer(IntEnum):
@@ -462,8 +462,9 @@ class State:
     def __repr__(self):
         return str(self.get_sorted_collision_map())
 
-    def as_numpy(self):
-        return np.concatenate([value.as_numpy() for key, value in self.items()])
+    def as_numpy(self, fixed_len=32):
+        a = np.concatenate([value.as_numpy() for key, value in self.items()])
+        return np.concatenate((a[:fixed_len], np.zeros(max(0, fixed_len - len(a)))), axis=None)
 
 
 class VelFacePathIter:
@@ -588,7 +589,7 @@ def contains(list, basetype):
 
 
 class Env:
-    def __init__(self, map, state_format="numpy"):
+    def __init__(self, map, state_format="numpy", state_fixed_len=32):
 
         # make the axis finite by placing walls at each end
         self._map = [Wall(0., Direction.EAST), Wall(1.0, Direction.WEST)] + map
@@ -596,6 +597,7 @@ class Env:
         self.t = 0.
         self.timers = TimerQueue(self)
         self.state_format = state_format
+        self.state_fixed_len = state_fixed_len
 
         # check for overlaps
         base_map = self.state.get_sorted_base_map()
@@ -603,11 +605,14 @@ class Env:
             if overlap(base_map[i], base_map[i + 1]):
                 assert False, "Overlaps detected in map"
 
+        self.observation_space = gym.spaces.Box(0, 1, shape=(state_fixed_len,))
+        self.action_space = gym.spaces.Discrete(len(Action))
+
     def reset(self):
         self.state = State(deepcopy(self._map))
         self.t = 0.
         if self.state_format == "numpy":
-            return self.state.as_numpy()
+            return self.state.as_numpy(self.state_fixed_len)
         else:
             return self.state
 
@@ -709,7 +714,7 @@ class Env:
         if dt == inf:
             print(dt, "EVENT: NO COLLISION")
             if self.state_format == "numpy":
-                return self.state.as_numpy(), reward, done, {'t': self.t, 'dt': 0, 'initial_state': initial_state}
+                return self.state.as_numpy(self.state_fixed_len), reward, done, {'t': self.t, 'dt': 0, 'initial_state': initial_state}
             else:
                 return self.state, reward, done, {'t': self.t, 'dt': 0, 'initial_state': initial_state}
         else:
@@ -790,6 +795,6 @@ class Env:
                     reward, done = 1., True
 
         if self.state_format == "numpy":
-            return self.state.as_numpy(), reward, done, {'t': self.t, 'dt': dt, 'initial_state': initial_state}
+            return self.state.as_numpy(self.state_fixed_len), reward, done, {'t': self.t, 'dt': dt, 'initial_state': initial_state}
         else:
             return self.state, reward, done, {'t': self.t, 'dt': dt, 'initial_state': initial_state}

@@ -10,7 +10,7 @@ from avalonsim.env import collision_handler
 from avalonsim.env import State
 from avalonsim.env import VelFacePathIter
 from avalonsim.env import get_contact_groups
-from avalonsim.env import DirectedVertexBodyIter, Vertex
+from avalonsim.env import DirectedVertexBodyIter, Vertex, RangeFinder
 
 def test_base():
     agent1 = Agent(pos=0.1)
@@ -618,3 +618,26 @@ def test_attackfest():
     state, _, _, _ = env.step(actions[-1])
     print(state)
     verify(state)
+
+
+def test_numpy_state():
+    sword = Weapon(damage=10, shot_speed=0.5, time_to_live=0.04, cooldown_time=0.1, shot_width=0.01, windup_time=0.1,
+                   recovery_time=0.04)
+    bow = Weapon(damage=3, shot_speed=0.5, time_to_live=1., cooldown_time=0.3, windup_time=0.3)
+    player = Agent(pos=0.1, facing=Direction.EAST, collision_layer=CollisionLayer.PLAYER,
+                   shot_collision_layer=CollisionLayer.PLAYER_SHOTS)
+    player.weapon = sword
+    player.add_vertex(RangeFinder(player.weapon.range))
+    player.add_vertex(RangeFinder(-player.weapon.range))
+    enemy = Agent(pos=0.9, facing=Direction.WEST)
+    enemy.weapon = bow
+    enemy.add_vertex(RangeFinder(enemy.weapon.range))
+    enemy.add_vertex(RangeFinder(-enemy.weapon.range))
+    map = [player, enemy]
+    env = Env(map, state_format="numpy")
+
+    state = env.reset()
+
+    assert state.shape == env.observation_space.shape
+    assert env.action_space.n == len(Action)
+    print(env.action_space.n)
