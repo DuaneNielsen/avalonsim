@@ -641,3 +641,4 @@ def test_numpy_state():
     assert state.shape == env.observation_space.shape
     assert env.action_space.n == len(Action)
     print(env.action_space.n)
+    print(state)

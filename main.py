@@ -15,7 +15,7 @@ if __name__ == "__main__":
     enemy.add_vertex(RangeFinder(enemy.weapon.range))
     enemy.add_vertex(RangeFinder(-enemy.weapon.range))
     map = [player, enemy]
-    env = Env(map, state_format="dict")
+    env = Env(map)
 
     import pygame
 

@@ -158,7 +158,8 @@ class Body:
         return f"{self.__class__.__name__} {self.id} face: {self.facing.name} pos: {self.pos} vel: {self.vel}"
 
     def as_numpy(self):
-        return np.array([self.pos, self.vel])
+        return np.array([self.pos - self.width/2, self.pos + self.width/2, self.vel])
+
 
 class Static(Body):
     def __init__(self):
@@ -199,7 +200,8 @@ class Agent(Dynamic):
         self.state = AgentState.READY
 
     def as_numpy(self):
-        return np.array([self.pos, self.vel, self.hp/self.hp_max, self.state])
+        return np.array([self.pos - self.width/2, self.pos + self.width/2, self.vel, self.hp / self.hp_max, self.state])
+
 
 class Shot(Dynamic):
     def __init__(self, facing, pos, vel, damage, collision_layer, width):
@@ -211,6 +213,18 @@ class Shot(Dynamic):
         self.collision_layer = collision_layer
         self.width = width
         self.timer = None
+
+    def as_numpy(self):
+        return np.array([self.pos, self.vel, self.width, self.damage/100])
+
+
+body_size_registry = {
+    CollisionLayer.WALLS: Wall(0., FaceDirection.FRONT).as_numpy().shape,
+    CollisionLayer.PLAYER: Agent().as_numpy().shape,
+    CollisionLayer.ENEMY: Agent().as_numpy().shape,
+    CollisionLayer.PLAYER_SHOTS: Shot(Direction.EAST, 0., 0., 10, CollisionLayer.PLAYER_SHOTS, 0.05).as_numpy().shape,
+    CollisionLayer.ENEMY_SHOTS: Shot(Direction.EAST, 0., 0., 10, CollisionLayer.PLAYER_SHOTS, 0.05).as_numpy().shape
+}
 
 
 class CollisionHandler:
@@ -411,7 +425,20 @@ def face_map(map):
 
 class State:
     def __init__(self, base_list=None):
+        """
+
+        :param state_config: a dictionary with an entry for each collision layer that specifices a maximum
+        amount of bodies
+        :param base_list:
+        """
         self._state = {}
+        self.state_config = {
+            CollisionLayer.WALLS: 2,
+            CollisionLayer.PLAYER: 1,
+            CollisionLayer.ENEMY: 1,
+            CollisionLayer.PLAYER_SHOTS: 3,
+            CollisionLayer.ENEMY_SHOTS: 3
+        }
         if base_list is not None:
             for item in base_list:
                 self.append(item)
@@ -437,6 +464,9 @@ class State:
     @property
     def shots(self):
         return list(filter(lambda x: isinstance(x, Shot), self._state.values()))
+
+    def collision_layer(self, collision_layer):
+        return list(filter(lambda x: x.collision_layer == collision_layer, self._state.values()))
 
     @property
     def marked_for_deletion(self):
@@ -473,9 +503,18 @@ class State:
     def __repr__(self):
         return str(self.get_sorted_collision_map())
 
-    def as_numpy(self, fixed_len=32):
-        a = np.concatenate([value.as_numpy() for key, value in self.items()])
-        return np.concatenate((a[:fixed_len], np.zeros(max(0, fixed_len - len(a)))), axis=None)
+    def as_numpy(self):
+
+        np_arrays = []
+        for layer, length in self.state_config.items():
+            size = body_size_registry[layer][0]
+            array = np.zeros(length * size)
+            bodies = self.collision_layer(layer)
+            for i in range(min(length, len(bodies))):
+                array[i * size:i*size+size] = bodies[i].as_numpy()
+            np_arrays.append(array)
+
+        return np.concatenate(np_arrays)
 
 
 class VelFacePathIter:
@@ -637,7 +676,7 @@ def draw(screen, state):
 
 class Env(gym.Env):
 
-    def __init__(self, map, state_format="numpy", state_fixed_len=32):
+    def __init__(self, map, state_format="numpy"):
 
         # make the axis finite by placing walls at each end
         self._map = [Wall(0., Direction.EAST), Wall(1.0, Direction.WEST)] + map
@@ -645,7 +684,6 @@ class Env(gym.Env):
         self.t = 0.
         self.timers = TimerQueue(self)
         self.state_format = state_format
-        self.state_fixed_len = state_fixed_len
 
         # check for overlaps
         base_map = self.state.get_sorted_base_map()
@@ -653,7 +691,7 @@ class Env(gym.Env):
             if overlap(base_map[i], base_map[i + 1]):
                 assert False, "Overlaps detected in map"
 
-        self.observation_space = gym.spaces.Box(0, 1, shape=(state_fixed_len,))
+        self.observation_space = gym.spaces.Box(0, 1, shape=self.state.as_numpy().shape)
         self.action_space = gym.spaces.Discrete(len(Action))
 
         # for rendering the environment
@@ -669,7 +707,7 @@ class Env(gym.Env):
         self.t = 0.
         self.dt = 0.
         if self.state_format == "numpy":
-            return self.state.as_numpy(self.state_fixed_len)
+            return self.state.as_numpy()
         else:
             return self.state
 
@@ -770,7 +808,8 @@ class Env(gym.Env):
         if dt == inf:
             print(dt, "EVENT: NO COLLISION")
             if self.state_format == "numpy":
-                return self.state.as_numpy(self.state_fixed_len), reward, done, {'t': self.t, 'dt': 0, 'initial_state': self.initial_state}
+                return self.state.as_numpy(), reward, done, {'t': self.t, 'dt': 0,
+                                                             'initial_state': self.initial_state}
             else:
                 return self.state, reward, done, {'t': self.t, 'dt': 0, 'initial_state': self.initial_state}
         else:
@@ -852,7 +891,8 @@ class Env(gym.Env):
                     reward, done = 1., True
 
         if self.state_format == "numpy":
-            return self.state.as_numpy(self.state_fixed_len), reward, done, {'t': self.t, 'dt': dt, 'initial_state': self.initial_state}
+            return self.state.as_numpy(), reward, done, {'t': self.t, 'dt': dt,
+                                                         'initial_state': self.initial_state}
         else:
             return self.state, reward, done, {'t': self.t, 'dt': dt, 'initial_state': self.initial_state}
 
