@@ -20,7 +20,7 @@ map = [player, enemy]
 register(
     id='Avalon-v1',
     entry_point='avalonsim.env:Env',
-    max_episode_steps=200,
+    max_episode_steps=10000,
     reward_threshold=1.,
     kwargs={'map': map}
 )

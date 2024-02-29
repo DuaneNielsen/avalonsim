@@ -1,6 +1,6 @@
 from math import inf
 import uuid
-from enum import IntEnum, Enum
+from enum import IntEnum
 from copy import deepcopy
 import numpy as np
 from avalonsim.timer import TimerQueue, Timer
@@ -10,6 +10,8 @@ import pygame
 from math import floor, ceil
 import copy
 
+def print(*args):
+    pass
 
 class CollisionLayer(IntEnum):
     WALLS = 0
@@ -912,5 +914,5 @@ class Env(gym.Env):
 
         draw(self.screen, self.state)
 
-        if mode == 'rgb':
+        if mode == 'rgb_array':
             return np.swapaxes(pygame.surfarray.array3d(self.screen), 0, 1)
