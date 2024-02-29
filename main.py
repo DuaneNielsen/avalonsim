@@ -14,8 +14,7 @@ if __name__ == "__main__":
     state = env.reset()
     print(state)
 
-    rgb = env.render(mode='rgb_array')
-    cv2.imshow("screen", rgb)
+    rgb = env.render(mode='human')
     random.seed(42)
 
     trajectory = []
@@ -50,14 +49,12 @@ if __name__ == "__main__":
                 state, reward, done, info = env.step(actions)
                 print(state, reward, done)
 
-                rgb = env.render(mode='rgb_array')
-                cv2.imshow("screen", rgb)
+                rgb = env.render(mode='human')
 
             if done:
                 print([[s[0].name, s[1].name] for s in trajectory])
                 state = env.reset()
-                rgb = env.render(mode='rgb')
-                cv2.imshow("screen", rgb)
+                rgb = env.render(mode='human')
                 done = False
                 trajectory = []
 
