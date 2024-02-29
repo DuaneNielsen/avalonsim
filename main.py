@@ -14,7 +14,7 @@ if __name__ == "__main__":
     state = env.reset()
     print(state)
 
-    rgb = env.render(mode='rgb')
+    rgb = env.render(mode='rgb_array')
     cv2.imshow("screen", rgb)
     random.seed(42)
 
@@ -50,7 +50,7 @@ if __name__ == "__main__":
                 state, reward, done, info = env.step(actions)
                 print(state, reward, done)
 
-                rgb = env.render(mode='rgb')
+                rgb = env.render(mode='rgb_array')
                 cv2.imshow("screen", rgb)
 
             if done:
