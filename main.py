@@ -1,8 +1,13 @@
 from avalonsim import Action
 import random
 import gym
+from argparse import ArgumentParser
 
 if __name__ == "__main__":
+
+    parser = ArgumentParser()
+    parser.add_argument('--enemy', action='store_true')
+    args = parser.parse_args()
 
     env = gym.make('Avalon-v1')
 
@@ -25,19 +30,22 @@ if __name__ == "__main__":
             actions = []
 
             if event.type == pygame.KEYDOWN:
-                enemy_action = Action(random.choice(range(4)))
+                random_action = Action(random.choice(range(4)))
                 if event.key == pygame.K_a:
-                    actions = [Action.BACKWARD, enemy_action]
+                    actions = [Action.BACKWARD, random_action]
                 elif event.key == pygame.K_d:
-                    actions = [Action.FORWARD, enemy_action]
+                    actions = [Action.FORWARD, random_action]
                 elif event.key == pygame.K_SPACE:
-                    actions = [Action.ATTACK, enemy_action]
+                    actions = [Action.ATTACK, random_action]
                 elif event.key == pygame.K_s:
-                    actions = [Action.NOOP, enemy_action]
+                    actions = [Action.NOOP, random_action]
                 elif event.key == pygame.K_t:
                     print([[s[0].name, s[1].name] for s in trajectory])
                 else:
                     break
+
+                if args.enemy:
+                    actions = list(reversed(actions))
 
             if event.type == pygame.QUIT:
                 running = False

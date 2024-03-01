@@ -10,8 +10,8 @@ import pygame
 from math import floor, ceil
 import copy
 
-def print(*args):
-    pass
+# def print(*args):
+#     pass
 
 class CollisionLayer(IntEnum):
     WALLS = 0
@@ -725,12 +725,17 @@ class Env(gym.Env):
                 elif action == Action.BACKWARD:
                     agent.vel = - agent.walk_speed * agent.facing
                 elif action == Action.ATTACK:
-                    agent.vel = 0.
-                    if agent.weapon is not None:
-                        if not agent.weapon.on_cooldown:
-                            agent.state = AgentState.WINDUP
-                            timer = WindupTimer(self.t + agent.weapon.windup_time, agent.weapon, agent)
-                            self.timers.push(timer)
+                    print(abs(self.state.agents[0].pos - self.state.agents[1].pos) - agent.width)
+                    print(agent.weapon.range)
+                    if abs(self.state.agents[0].pos - self.state.agents[1].pos) - agent.width <= agent.weapon.range:
+                        agent.vel = 0.
+                        if agent.weapon is not None:
+                            if not agent.weapon.on_cooldown:
+                                agent.state = AgentState.WINDUP
+                                timer = WindupTimer(self.t + agent.weapon.windup_time, agent.weapon, agent)
+                                self.timers.push(timer)
+                    else:
+                        agent.vel = agent.walk_speed * agent.facing
                 elif action == Action.REVERSE_FACING:
                     agent.facing = reverse_facing(agent.facing)
 
@@ -793,6 +798,7 @@ class Env(gym.Env):
                             break
 
             for vertex, face in DirectedVertexBodyIter(sorted_map, i, reverse=True, check_zero_vel=True):
+                print(vertex, face)
                 if collision_handler.can_collide(vertex, face):
                     if not close(vertex.pos, face.pos):
                         dt_adj = dt_to_collision(vertex.pos, vertex.parent.vel, face.pos, face.parent.vel)
@@ -800,6 +806,7 @@ class Env(gym.Env):
                             if dt_adj < dt:
                                 next_collision = vertex, face
                             dt = min(dt, dt_adj)
+                            print(vertex, face, dt)
                             break
 
         # if dt is inf all the objects are stationary
