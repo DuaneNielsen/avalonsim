@@ -1,6 +1,5 @@
 from avalonsim import Action
 import random
-import cv2
 import gym
 
 if __name__ == "__main__":

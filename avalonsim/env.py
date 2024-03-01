@@ -763,8 +763,7 @@ class Env(gym.Env):
                     speed = min(speed, abs(next_in_path.vel))
                 element.vel = speed * vel_dir
 
-        if self.screen:
-            self.initial_state = copy.copy(self.state)
+        self.initial_state = copy.copy(self.state)
 
         # for objects not in contact, compute future collisions and find the nearest in time
         next_collision = None
@@ -885,12 +884,17 @@ class Env(gym.Env):
                 for left_x, right_x in AdjacentPairs(group):
                     right_x.pos = left_x.pos + left_x.width / 2 + right_x.width / 2
 
-        for agent in self.state.agents:
-            if agent.hp <= 0:
-                if agent.collision_layer == CollisionLayer.PLAYER:
+        for i, agent in enumerate(self.state.agents):
+            if agent.collision_layer == CollisionLayer.PLAYER:
+                if agent.hp <= 0:
                     reward, done = -1., True
-                elif agent.collision_layer == CollisionLayer.ENEMY:
+                elif agent.hp < self.initial_state.agents[i].hp:
+                    reward = -0.01
+            elif agent.collision_layer == CollisionLayer.ENEMY:
+                if agent.hp <= 0:
                     reward, done = 1., True
+                elif agent.hp < self.initial_state.agents[i].hp:
+                    reward = 0.01
 
         if self.state_format == "numpy":
             return self.state.as_numpy(), reward, done, {'t': self.t, 'dt': dt,
