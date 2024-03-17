@@ -5,13 +5,16 @@ from copy import deepcopy
 import numpy as np
 from avalonsim.timer import TimerQueue, Timer
 from avalonsim.render import start_screen, draw_rect, to_screen
-import gym
+import gymnasium as gym
 import pygame
 from math import floor, ceil
 import copy
+from typing import Optional
 
-# def print(*args):
-#     pass
+
+def print(*args):
+    pass
+
 
 class CollisionLayer(IntEnum):
     WALLS = 0
@@ -516,7 +519,7 @@ class State:
                 array[i * size:i*size+size] = bodies[i].as_numpy()
             np_arrays.append(array)
 
-        return np.concatenate(np_arrays)
+        return np.concatenate(np_arrays).astype(np.float32)
 
 
 class VelFacePathIter:
@@ -676,9 +679,16 @@ def draw(screen, state):
     pygame.display.flip()
 
 
+
 class Env(gym.Env):
 
-    def __init__(self, map, state_format="numpy"):
+    metadata = {
+        "render_modes": ["human", "rgb_array"],
+        "render_fps": 50,
+        "render_speed": 4,
+    }
+
+    def __init__(self, map, render_mode: Optional[str]=None, state_format="numpy"):
 
         # make the axis finite by placing walls at each end
         self._map = [Wall(0., Direction.EAST), Wall(1.0, Direction.WEST)] + map
@@ -686,6 +696,10 @@ class Env(gym.Env):
         self.t = 0.
         self.timers = TimerQueue(self)
         self.state_format = state_format
+        self._seed = 0
+        self.render_mode = render_mode if render_mode is not None else 'human'
+        self.render_fps = self.metadata['render_fps']
+        self.render_speed = self.metadata['render_speed']
 
         # check for overlaps
         base_map = self.state.get_sorted_base_map()
@@ -693,7 +707,7 @@ class Env(gym.Env):
             if overlap(base_map[i], base_map[i + 1]):
                 assert False, "Overlaps detected in map"
 
-        self.observation_space = gym.spaces.Box(0, 1, shape=self.state.as_numpy().shape)
+        self.observation_space = gym.spaces.Box(-0.1, 1.1, shape=self.state.as_numpy().shape)
         self.action_space = gym.spaces.Discrete(len(Action))
 
         # for rendering the environment
@@ -701,17 +715,18 @@ class Env(gym.Env):
         self.initial_state = None
         self.dt = None
 
+
     def get_action_meanings(self):
         return [a.name for a in Action]
 
-    def reset(self):
+    def reset(self, seed=None, options=None):
         self.state = State(deepcopy(self._map))
         self.t = 0.
         self.dt = 0.
         if self.state_format == "numpy":
-            return self.state.as_numpy()
+            return self.state.as_numpy(), {}
         else:
-            return self.state
+            return self.state, {}
 
     def step(self, actions):
 
@@ -813,13 +828,16 @@ class Env(gym.Env):
         # or there are only two objects moving away from each other that will never intersect
         # assuming you have walls at both ends, then we cannot be in the latter, so just return the current state
 
+        truncated = False
+        info = {'t': self.t, 'dt': 0, 'initial_state': self.initial_state}
+
         if dt == inf:
             print(dt, "EVENT: NO COLLISION")
             if self.state_format == "numpy":
-                return self.state.as_numpy(), reward, done, {'t': self.t, 'dt': 0,
-                                                             'initial_state': self.initial_state}
+                return self.state.as_numpy(), reward, done, truncated, info
+
             else:
-                return self.state, reward, done, {'t': self.t, 'dt': 0, 'initial_state': self.initial_state}
+                return self.state, reward, done, truncated, info
         else:
             if dt == next_timer:
                 print(dt, "EVENT: TIMER", self.timers.peek())
@@ -903,27 +921,33 @@ class Env(gym.Env):
                 elif agent.hp < self.initial_state.agents[i].hp:
                     reward = 0.01
 
+        info = {'t': self.t, 'dt': dt, 'initial_state': self.initial_state}
+
         if self.state_format == "numpy":
-            return self.state.as_numpy(), reward, done, {'t': self.t, 'dt': dt,
-                                                         'initial_state': self.initial_state}
+            return self.state.as_numpy(), reward, done, truncated, info
+
         else:
-            return self.state, reward, done, {'t': self.t, 'dt': dt, 'initial_state': self.initial_state}
+            return self.state, reward, done, truncated, info
 
-    def render(self, mode="human", speed=1., fps=50):
-
+    def render(self):
         if self.screen is None:
             self.screen = start_screen()
         draw(self.screen, self.state)
-        pygame.time.wait(floor(100 / speed / fps))
+        pygame.time.wait(floor(100 / self.render_speed / self.render_fps))
 
-        if mode == "human":
+        if self.render_mode == "human":
             if self.initial_state is not None:
-                for dt in range(ceil(self.dt * fps)):
+                for dt in range(ceil(self.dt * self.render_fps)):
                     for key, item in self.initial_state.items():
-                        self.initial_state[key].pos += self.initial_state[key].vel / fps
+                        self.initial_state[key].pos += self.initial_state[key].vel / self.render_fps
                         draw(self.screen, self.initial_state)
+                        pygame.time.wait(floor(100/self.render_fps))
 
         draw(self.screen, self.state)
 
-        if mode == 'rgb_array':
+        if self.render_mode == 'rgb_array':
             return np.swapaxes(pygame.surfarray.array3d(self.screen), 0, 1)
+
+    def seed(self, seed):
+        self._seed = seed
+
