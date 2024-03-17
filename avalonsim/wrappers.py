@@ -1,5 +1,5 @@
-import gym
-import gym.spaces
+import gymnasium as gym
+from gymnasium.spaces import Discrete
 from avalonsim.env import Action
 import random
 
@@ -26,7 +26,7 @@ class NoTurnaroundWrapper(gym.ActionWrapper):
 
     def __init__(self, env):
         super().__init__(env)
-        self.action_space = gym.spaces.Discrete(env.unwrapped.action_space.n - 1)
+        self.action_space = Discrete(env.unwrapped.action_space.n - 1)
         self.mapping = []
 
     def action(self, action):
