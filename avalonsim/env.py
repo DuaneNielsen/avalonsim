@@ -715,7 +715,6 @@ class Env(gym.Env):
         self.initial_state = None
         self.dt = None
 
-
     def get_action_meanings(self):
         return [a.name for a in Action]
 
@@ -914,12 +913,12 @@ class Env(gym.Env):
                 if agent.hp <= 0:
                     reward, done = -1., True
                 elif agent.hp < self.initial_state.agents[i].hp:
-                    reward = -0.01
+                    reward = -0.1
             elif agent.collision_layer == CollisionLayer.ENEMY:
                 if agent.hp <= 0:
                     reward, done = 1., True
                 elif agent.hp < self.initial_state.agents[i].hp:
-                    reward = 0.01
+                    reward = 0.1
 
         info = {'t': self.t, 'dt': dt, 'initial_state': self.initial_state}
 
