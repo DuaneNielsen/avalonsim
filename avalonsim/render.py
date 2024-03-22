@@ -41,12 +41,16 @@ def to_screen(*args):
     assert False, "must be a co-ordinate XY or rectangle XYWH"
 
 
-def draw_rect(screen, base, height, width, color):
-    y = 0.0
-    x, y, width, height = to_screen(base.pos, y, width, height)
+def draw_rect(screen, xpos, ypos, height, width, color):
+    x, y, width, height = to_screen(xpos, ypos, width, height)
     x -= width / 2
     color = pygame.Color(color)
     bar = pygame.Rect(x, y, width, height)
     pygame.draw.rect(screen, color, bar)
+
+
+def draw_body(screen, body, height, width, color):
+    y = 0.0
+    draw_rect(screen, body.pos, y, height, width, color)
 
 
