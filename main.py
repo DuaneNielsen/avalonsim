@@ -1,7 +1,8 @@
 from avalonsim import Action
 import random
-import gym
+import gymnasium as gym
 from argparse import ArgumentParser
+
 
 if __name__ == "__main__":
 
@@ -9,16 +10,16 @@ if __name__ == "__main__":
     parser.add_argument('--enemy', action='store_true')
     args = parser.parse_args()
 
-    env = gym.make('Avalon-v1')
+    env = gym.make('Avalon-v1', render_mode='human')
 
     import pygame
 
     running = True
 
-    state = env.reset()
+    state, info = env.reset()
     print(state)
 
-    rgb = env.render(mode='human')
+    rgb = env.render()
     random.seed(42)
 
     trajectory = []
@@ -34,7 +35,10 @@ if __name__ == "__main__":
                 if event.key == pygame.K_a:
                     actions = [Action.BACKWARD, random_action]
                 elif event.key == pygame.K_d:
-                    actions = [Action.FORWARD, random_action]
+                    if event.mod & pygame.KMOD_SHIFT:
+                        actions = [Action.SPRINT_FORWARD, random_action]
+                    else:
+                        actions = [Action.FORWARD, random_action]
                 elif event.key == pygame.K_SPACE:
                     actions = [Action.ATTACK, random_action]
                 elif event.key == pygame.K_s:
@@ -53,15 +57,15 @@ if __name__ == "__main__":
             if len(actions) == 2:
                 print([a.name for a in actions])
                 trajectory += [actions]
-                state, reward, done, info = env.step(actions)
+                state, reward, done, trunc, info = env.step(actions)
                 print(state, reward, done)
 
-                rgb = env.render(mode='human')
+                rgb = env.render()
 
             if done:
                 print([[s[0].name, s[1].name] for s in trajectory])
-                state = env.reset()
-                rgb = env.render(mode='human')
+                state, info = env.reset()
+                rgb = env.render()
                 done = False
                 trajectory = []
 

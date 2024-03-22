@@ -4,7 +4,7 @@ from enum import IntEnum
 from copy import deepcopy
 import numpy as np
 from avalonsim.timer import TimerQueue, Timer
-from avalonsim.render import start_screen, draw_rect, to_screen
+from avalonsim.render import start_screen, draw_body, to_screen, draw_rect
 import gymnasium as gym
 import pygame
 from math import floor, ceil
@@ -51,6 +51,7 @@ class Action(IntEnum):
     BACKWARD = 2
     ATTACK = 3
     REVERSE_FACING = 4
+    SPRINT_FORWARD = 5
 
 
 def sign(x):
@@ -189,14 +190,21 @@ class Wall(Static):
 
 
 class Agent(Dynamic):
-    def __init__(self, pos=0., facing=Direction.WEST, walk_speed=0.1, hp_max=100, collision_layer=CollisionLayer.ENEMY,
+    def __init__(self, pos=0., facing=Direction.WEST, walk_speed=0.05, sprint_speed=0.2,
+                 hp_max=100,
+                 stamina_max=100,
+                 collision_layer=CollisionLayer.ENEMY,
                  shot_collision_layer=CollisionLayer.ENEMY_SHOTS):
         super().__init__()
         self.pos = pos
         self.facing = facing
         self.walk_speed = walk_speed
+        self.sprint_speed = sprint_speed
         self.hp = hp_max
         self.hp_max = hp_max
+        self.stamina = stamina_max
+        self.stamina_max = stamina_max
+        self.stamina_rate = 0.
         self.weapon = None
         self.action_ready = True  # able to take an action
         self.collision_layer = collision_layer
@@ -647,7 +655,7 @@ def draw(screen, state):
     screen.fill((0, 0, 0))
 
     for static in state.statics:
-        draw_rect(screen, static, 1., static.width, "grey")
+        draw_body(screen, static, 1., static.width, "grey")
 
     for agent in state.agents:
         if agent.collision_layer == CollisionLayer.PLAYER:
@@ -657,13 +665,14 @@ def draw(screen, state):
         else:
             color = "green"
 
-        draw_rect(screen, agent, 0.6 * agent.hp / agent.hp_max, agent.width, color)
+        draw_body(screen, agent, 0.6 * agent.hp / agent.hp_max, agent.width, color)
+        draw_rect(screen, agent.pos + agent.width/2, 0, 0.6 * agent.stamina / agent.stamina_max, agent.width/2, "green")
 
     for shot in state.shots:
         if shot.collision_layer == CollisionLayer.PLAYER_SHOTS:
-            draw_rect(screen, shot, 0.4, shot.width, "lightgoldenrod1")
+            draw_body(screen, shot, 0.4, shot.width, "lightgoldenrod1")
         if shot.collision_layer == CollisionLayer.ENEMY_SHOTS:
-            draw_rect(screen, shot, 0.4, shot.width, "red")
+            draw_body(screen, shot, 0.4, shot.width, "red")
 
     for i, agent in enumerate(state.agents):
         if agent.weapon:
@@ -732,7 +741,9 @@ class Env(gym.Env):
         done = False
         reward = 0.
 
+        # agent actions
         for agent, action in zip(self.state.agents, actions):
+
             if agent.state == AgentState.READY:
                 if action == Action.FORWARD:
                     agent.vel = agent.walk_speed * agent.facing
@@ -752,6 +763,12 @@ class Env(gym.Env):
                         agent.vel = agent.walk_speed * agent.facing
                 elif action == Action.REVERSE_FACING:
                     agent.facing = reverse_facing(agent.facing)
+                elif action == Action.SPRINT_FORWARD:
+                    if agent.stamina > 0:
+                        agent.vel = agent.sprint_speed * agent.facing
+                        agent.stamina_rate = -20
+                    else:
+                        agent.vel = agent.walk_speed * agent.facing
 
         print(f'TIMERS: {self.timers}')
 
@@ -823,6 +840,13 @@ class Env(gym.Env):
                             print(vertex, face, dt)
                             break
 
+        # finally, lets check for stamina draining to zero
+        for agent in self.state.agents:
+            if agent.stamina_rate != 0:
+                dt_stamina_zero = agent.stamina / - agent.stamina_rate
+                if dt_stamina_zero > 0:
+                    dt = min(dt, dt_stamina_zero)
+
         # if dt is inf all the objects are stationary
         # or there are only two objects moving away from each other that will never intersect
         # assuming you have walls at both ends, then we cannot be in the latter, so just return the current state
@@ -843,9 +867,14 @@ class Env(gym.Env):
             else:
                 print(dt, "EVENT: COLLISION", next_collision)
 
-        # update positions and move time forward
+        # update positions, stamina and move time forward
         for _, left_x in self.state.items():
             left_x.pos += left_x.vel * dt
+
+        for agent in self.state.agents:
+            agent.stamina += agent.stamina_rate * dt
+            agent.stamina_rate = 0.
+
         self.t += dt
         self.dt = dt
 
@@ -940,9 +969,10 @@ class Env(gym.Env):
                     for key, item in self.initial_state.items():
                         self.initial_state[key].pos += self.initial_state[key].vel / self.render_fps
                         draw(self.screen, self.initial_state)
-                        pygame.time.wait(floor(100/self.render_fps))
+                        pygame.time.wait(floor(100/self.render_fps/self.render_speed))
 
         draw(self.screen, self.state)
+        pygame.time.wait(floor(100 / self.render_speed / self.render_fps))
 
         if self.render_mode == 'rgb_array':
             return np.swapaxes(pygame.surfarray.array3d(self.screen), 0, 1)
