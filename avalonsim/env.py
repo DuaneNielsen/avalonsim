@@ -12,8 +12,8 @@ import copy
 from typing import Optional
 
 
-def print(*args):
-    pass
+# def print(*args):
+#     pass
 
 
 class CollisionLayer(IntEnum):
@@ -23,6 +23,7 @@ class CollisionLayer(IntEnum):
     PLAYER_SHOTS = 3
     ENEMY_SHOTS = 4
     RANGEFINDER = 5
+    DODGING = 6
 
 
 class Direction(IntEnum):
@@ -52,6 +53,12 @@ class Action(IntEnum):
     ATTACK = 3
     REVERSE_FACING = 4
     SPRINT_FORWARD = 5
+    HEALTH_POT = 6
+    DODGEROLL_FORWARD = 7
+
+
+class Items(IntEnum):
+    HEALTH_POT = 0
 
 
 def sign(x):
@@ -89,13 +96,14 @@ def close(a, b, tol=1e-6):
     return abs(a - b) < tol
 
 
-def between(base, pos):
-    faces = sorted(base.faces, key=lambda x: x.pos)
+def between(body, pos):
+    faces = sorted(body.faces, key=lambda x: x.pos)
     return faces[0].pos < pos < faces[1].pos
 
 
-def overlap(base1, base2):
-    return between(base1, base2.faces[0].pos) or between(base1, base2.faces[1].pos)
+def overlap(body1, body2):
+    """returns true of bodies are overlapping"""
+    return between(body1, body2.faces[0].pos) or between(body1, body2.faces[1].pos)
 
 
 class Vertex:
@@ -164,7 +172,7 @@ class Body:
         return f"{self.__class__.__name__} {self.id} face: {self.facing.name} pos: {self.pos} vel: {self.vel}"
 
     def as_numpy(self):
-        return np.array([self.pos - self.width/2, self.pos + self.width/2, self.vel])
+        return np.array([self.pos - self.width / 2, self.pos + self.width / 2, self.vel])
 
 
 class Static(Body):
@@ -189,6 +197,49 @@ class Wall(Static):
         return str(self.__class__) + " face:" + str(self.facing) + " pos: " + str(self.pos)
 
 
+class Inventory:
+    def __init__(self):
+        super().__init__()
+        self._inventory = {}
+
+    def __iadd__(self, item):
+        if item in self._inventory:
+            self._inventory[item] += 1
+        else:
+            self._inventory[item] = 1
+        return self
+
+    def __isub__(self, item):
+        if item in self._inventory:
+            self._inventory[item] -= 1
+        return self
+
+    def __getitem__(self, key):
+        return self._inventory[key]
+
+    def __setitem__(self, key, value):
+        self._inventory[key] = value
+
+    def __delitem__(self, key):
+        del self._inventory[key]
+
+    def __len__(self):
+        return len(self._inventory)
+
+    def __iter__(self):
+        return iter(self._inventory)
+
+    def __repr__(self):
+        return repr(self._inventory)
+
+    def as_numpy(self):
+        inventory = np.zeros(len(list(Items)))
+        for i, item in enumerate(Items):
+            if item in self._inventory:
+                inventory[i] = self._inventory[item] / 10
+        return inventory
+
+
 class Agent(Dynamic):
     def __init__(self, pos=0., facing=Direction.WEST, walk_speed=0.05, sprint_speed=0.2,
                  hp_max=100,
@@ -211,9 +262,17 @@ class Agent(Dynamic):
         self.shot_collision_layer = shot_collision_layer
         self.width = 0.01
         self.state = AgentState.READY
+        self.inventory = Inventory()
 
     def as_numpy(self):
-        return np.array([self.pos - self.width/2, self.pos + self.width/2, self.vel, self.hp / self.hp_max, self.state])
+        return np.concatenate([
+            np.array(
+                [self.pos - self.width / 2, self.pos + self.width / 2, self.vel,
+                 self.hp / self.hp_max, self.state,
+                 self.stamina / self.stamina_max,
+                 ]),
+            self.inventory.as_numpy()
+        ])
 
 
 class Shot(Dynamic):
@@ -228,7 +287,7 @@ class Shot(Dynamic):
         self.timer = None
 
     def as_numpy(self):
-        return np.array([self.pos, self.vel, self.width, self.damage/100])
+        return np.array([self.pos, self.vel, self.width, self.damage / 100])
 
 
 body_size_registry = {
@@ -332,6 +391,7 @@ collision_handler.add_handler(CollisionLayer.PLAYER, CollisionLayer.ENEMY, dynam
 collision_handler.add_handler(CollisionLayer.ENEMY, CollisionLayer.PLAYER, dynamic_stop, can_constrain=True)
 collision_handler.add_handler(CollisionLayer.WALLS, CollisionLayer.PLAYER, static_stop, can_constrain=True)
 collision_handler.add_handler(CollisionLayer.WALLS, CollisionLayer.ENEMY, static_stop, can_constrain=True)
+collision_handler.add_handler(CollisionLayer.WALLS, CollisionLayer.DODGING, static_stop, can_constrain=True)
 collision_handler.add_handler(CollisionLayer.PLAYER_SHOTS, CollisionLayer.WALLS, delete_self)
 collision_handler.add_handler(CollisionLayer.ENEMY_SHOTS, CollisionLayer.WALLS, delete_self)
 collision_handler.add_handler(CollisionLayer.ENEMY_SHOTS, CollisionLayer.PLAYER, apply_damage_and_delete)
@@ -365,6 +425,30 @@ class WindupTimer(Timer):
             env.timers.push(timer)
         else:
             self.agent.state = AgentState.READY
+
+class DodgeRollTimer(Timer):
+    def __init__(self, t, agent, original_collision_layer):
+        super().__init__(t)
+        self.agent = agent
+        self.original_collision_layer = original_collision_layer
+
+    def on_expire(self, env):
+        overlap_detected = False
+        for agent in env.state.agents:
+            if self.agent.id != agent.id:
+                if overlap(self.agent, agent):
+                    overlap_detected = True
+                    break
+
+        if overlap_detected:
+            print('overlap, extending timer')
+            timer = DodgeRollTimer(env.t + 0.05, self.agent, self.original_collision_layer)
+            env.timers.push(timer)
+        else:
+            self.agent.collision_layer = self.original_collision_layer
+            self.agent.vel = 0.
+            print('ending dodge', self.agent.collision_layer)
+
 
 
 class RecoveryTimer(Timer):
@@ -524,7 +608,7 @@ class State:
             array = np.zeros(length * size)
             bodies = self.collision_layer(layer)
             for i in range(min(length, len(bodies))):
-                array[i * size:i*size+size] = bodies[i].as_numpy()
+                array[i * size:i * size + size] = bodies[i].as_numpy()
             np_arrays.append(array)
 
         return np.concatenate(np_arrays).astype(np.float32)
@@ -666,7 +750,7 @@ def draw(screen, state):
             color = "green"
 
         draw_body(screen, agent, 0.6 * agent.hp / agent.hp_max, agent.width, color)
-        draw_rect(screen, agent.pos + agent.width/2, 0, 0.6 * agent.stamina / agent.stamina_max, agent.width/2, "green")
+        draw_rect(screen, agent.pos + agent.width / 2, 0, 0.6 * agent.stamina / agent.stamina_max, agent.width / 2, "green")
 
     for shot in state.shots:
         if shot.collision_layer == CollisionLayer.PLAYER_SHOTS:
@@ -675,11 +759,10 @@ def draw(screen, state):
             draw_body(screen, shot, 0.4, shot.width, "red")
 
     for i, agent in enumerate(state.agents):
-        if agent.weapon:
-            if agent.weapon.on_cooldown:
-                color = pygame.Color("red")
-            else:
+            if agent.state == AgentState.READY:
                 color = pygame.Color("green")
+            else:
+                color = pygame.Color("red")
             x = 0.4 + i * 0.2
             x, y, width, height = to_screen(x, 0.9, 0.05, 0.05)
             bar = pygame.Rect(x, y, width, height)
@@ -688,16 +771,14 @@ def draw(screen, state):
     pygame.display.flip()
 
 
-
 class Env(gym.Env):
-
     metadata = {
         "render_modes": ["human", "rgb_array"],
         "render_fps": 50,
         "render_speed": 4,
     }
 
-    def __init__(self, map, render_mode: Optional[str]=None, state_format="numpy"):
+    def __init__(self, map, render_mode: Optional[str] = None, state_format="numpy"):
 
         # make the axis finite by placing walls at each end
         self._map = [Wall(0., Direction.EAST), Wall(1.0, Direction.WEST)] + map
@@ -769,6 +850,18 @@ class Env(gym.Env):
                         agent.stamina_rate = -20
                     else:
                         agent.vel = agent.walk_speed * agent.facing
+                elif action == Action.HEALTH_POT:
+                    if Items.HEALTH_POT in agent.inventory:
+                        if agent.inventory[Items.HEALTH_POT] > 0:
+                            agent.hp = min(agent.hp + 50, agent.hp_max)
+                            agent.inventory[Items.HEALTH_POT] -= 1
+                elif action == Action.DODGEROLL_FORWARD:
+                    if agent.stamina > 20:
+                        agent.stamina -= 20
+                        agent.vel = agent.sprint_speed * 5 * agent.facing
+                        timer = DodgeRollTimer(self.t + 0.05, agent, agent.collision_layer)
+                        agent.collision_layer = CollisionLayer.DODGING
+                        self.timers.push(timer)
 
         print(f'TIMERS: {self.timers}')
 
@@ -969,7 +1062,7 @@ class Env(gym.Env):
                     for key, item in self.initial_state.items():
                         self.initial_state[key].pos += self.initial_state[key].vel / self.render_fps
                         draw(self.screen, self.initial_state)
-                        pygame.time.wait(floor(100/self.render_fps/self.render_speed))
+                        pygame.time.wait(floor(100 / self.render_fps / self.render_speed))
 
         draw(self.screen, self.state)
         pygame.time.wait(floor(100 / self.render_speed / self.render_fps))
@@ -979,4 +1072,3 @@ class Env(gym.Env):
 
     def seed(self, seed):
         self._seed = seed
-

@@ -37,12 +37,19 @@ if __name__ == "__main__":
                 elif event.key == pygame.K_d:
                     if event.mod & pygame.KMOD_SHIFT:
                         actions = [Action.SPRINT_FORWARD, random_action]
+                    elif event.mod & pygame.KMOD_CTRL:
+                        actions = [Action.DODGEROLL_FORWARD, random_action]
                     else:
                         actions = [Action.FORWARD, random_action]
                 elif event.key == pygame.K_SPACE:
                     actions = [Action.ATTACK, random_action]
                 elif event.key == pygame.K_s:
                     actions = [Action.NOOP, random_action]
+                elif event.key == pygame.K_t:
+                    actions = [Action.HEALTH_POT, random_action]
+                elif event.key == pygame.K_q:
+                    actions = [Action.REVERSE_FACING, random_action]
+
                 elif event.key == pygame.K_t:
                     print([[s[0].name, s[1].name] for s in trajectory])
                 else:
